@@ -61,10 +61,12 @@ Summary
 - Device Owner enabled -> full enterprise kiosk
 - No backend or internet required
 - Designed for secure, offline environments
+
+
 hi i am naeem qadir 
 please share your contact infromation on here 
 i want to be direct for next time
-we are not allowed on fiver to share details that why i was enabled to be direct
+we are not allowed on fiver to share details that why i was not enabled to be direct
 my contact number is 
 please dont discuss this thing on fivver
 whats app : +923126519326 
