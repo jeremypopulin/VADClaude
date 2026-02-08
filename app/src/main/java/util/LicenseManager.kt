@@ -66,7 +66,7 @@ object LicenseManager {
             .getString(LICENSE_KEY, null)
     }
 
-    fun getLicenseType(context: Context): String {
+/*fun getLicenseType(context: Context): String {
         val deviceId = getDeviceId(context)
         val key = getStoredKey(context).orEmpty()
 
@@ -78,5 +78,31 @@ object LicenseManager {
             key == validKeyBasic || key in basicKeys -> "BASIC"
             else -> "BASIC" // fallback
         }
+    }*/
+    fun getLicenseType(context: Context): String {
+        val deviceId = getDeviceId(context)
+        val key = getStoredKey(context).orEmpty()
+
+        Log.d("LicenseManager", "Getting license type for key: $key")
+
+        val validKeyBasic = hashKey("$SECRET-$deviceId-basic")
+        val validKeyPremium = hashKey("$SECRET-$deviceId-premium")
+
+        val result = when {
+            key == validKeyPremium || key in premiumKeys -> {
+                Log.d("LicenseManager", "Matched PREMIUM license")
+                "PREMIUM"
+            }
+            key == validKeyBasic || key in basicKeys -> {
+                Log.d("LicenseManager", "Matched BASIC license")
+                "BASIC"
+            }
+            else -> {
+                Log.d("LicenseManager", "No match found, defaulting to BASIC")
+                "BASIC"
+            }
+        }
+
+        return result
     }
 }

@@ -33,11 +33,46 @@ class DeviceViewModel : ViewModel() {
     private var currentPassword = DEFAULT_PASSWORD
     private var pendingAction: (() -> Unit)? = null
 
-    var licenseType = mutableStateOf("BASIC")
-        private set
+   // var licenseType = mutableStateOf("BASIC")
+        //private set
+   private val _licenseType = mutableStateOf("BASIC")
+    val licenseType: State<String> = _licenseType
 
-    fun refreshLicenseType(context: Context) {
+    /*fun refreshLicenseType(context: Context) {
         licenseType.value = LicenseManager.getLicenseType(context)
+    }*/
+    fun refreshLicenseType(context: Context) {
+        val storedKey = LicenseManager.getStoredKey(context)
+        Log.d("DeviceViewModel", "Refreshing license type. Stored key: $storedKey")
+
+        //licenseType.value = LicenseManager.getLicenseType(context)
+        val newType = LicenseManager.getLicenseType(context)
+        Log.d("DeviceViewModel", "🔄 Refreshing license: $newType")
+        _licenseType.value = newType
+        Log.d("DeviceViewModel", "✅ License type updated to: ${_licenseType.value}")
+
+        Log.d("DeviceViewModel", "License type set to: ${licenseType.value}")
+    }
+    fun forceRefreshLicense(context: Context, onComplete: (() -> Unit)? = null) {
+        Log.d("DeviceViewModel", "🔥 FORCE REFRESH LICENSE TRIGGERED")
+
+        // First refresh immediately
+        refreshLicenseType(context)
+
+        // Then refresh again after a delay to ensure SharedPreferences is fully written
+        viewModelScope.launch {
+            delay(150)
+            refreshLicenseType(context)
+
+            delay(50)
+            val finalType = LicenseManager.getLicenseType(context)
+            Log.d("DeviceViewModel", "🎯 Final license type after force refresh: $finalType")
+
+            // Call the completion callback on main thread
+            withContext(Dispatchers.Main) {
+                onComplete?.invoke()
+            }
+        }
     }
 
     var deviceStates = mutableStateListOf<DeviceState>()
@@ -93,6 +128,8 @@ class DeviceViewModel : ViewModel() {
     fun initWith(context: Context) {
         contextRef = context.applicationContext
         repository = DeviceRepository(contextRef!!)
+        //new
+        refreshLicenseType(contextRef!!)
 
         viewModelScope.launch {
             currentPassword = repository.loadPassword()
@@ -120,7 +157,9 @@ class DeviceViewModel : ViewModel() {
 
             loadEventLog(contextRef!!)
             loadSmsSettings(contextRef!!)
-            refreshLicenseType(contextRef!!)
+            // Refresh license AFTER everything is loaded
+            //delay(100) // Small delay to ensure SharedPreferences is ready
+           // refreshLicenseType(contextRef!!)
             startPolling()
         }
     }
