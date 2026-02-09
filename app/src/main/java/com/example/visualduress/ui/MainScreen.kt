@@ -423,47 +423,48 @@ fun MainScreen(viewModel: DeviceViewModel) {
             }
     ) {
         // Top Navigation Bar
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(72.dp)
-                .zIndex(10f),
-            color = topBarColor,
-            elevation = 4.dp
-        ) {
-            Row(
+        if (!showFullscreen) {
+            Surface(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .fillMaxWidth()
+                    .height(72.dp)
+                    .zIndex(10f),
+                color = topBarColor,
+                elevation = 4.dp
             ) {
-                // Left side - Logo and Title
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.vadlogo),
-                        contentDescription = "App Logo",
-                        modifier = Modifier.height(40.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = "Visual Alert Display",
-                        color = Color.White,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
+                    // Left side - Logo and Title
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.vadlogo),
+                            contentDescription = "App Logo",
+                            modifier = Modifier.height(40.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "Visual Alert Display",
+                            color = Color.White,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
 
-                // Right side - Controls
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Online Status Badge
-                    /*Surface(
+                    // Right side - Controls
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Online Status Badge
+                        /*Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = if (isConnected) onlineColor.copy(alpha = 0.2f) else Color.Red.copy(alpha = 0.2f),
                         modifier = Modifier.padding(end = 8.dp)
@@ -490,64 +491,67 @@ fun MainScreen(viewModel: DeviceViewModel) {
                             )
                         }
                     }*/
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = if (isConnected)
-                            onlineColor.copy(alpha = 0.2f)
-                        else
-                            Color.Red.copy(alpha = 0.2f),
-                        modifier = Modifier.padding(end = 8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isConnected)
+                                onlineColor.copy(alpha = 0.2f)
+                            else
+                                Color.Red.copy(alpha = 0.2f),
+                            modifier = Modifier.padding(end = 8.dp)
                         ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
 
-                            // Status indicator dot
-                            Box(
-                                modifier = Modifier
-                                    .size(10.dp)
-                                    .background(
-                                        color = if (isConnected) Color(0xFF00E676) else Color.Red,
-                                        shape = CircleShape
-                                    )
-                            )
+                                // Status indicator dot
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .background(
+                                            color = if (isConnected) Color(0xFF00E676) else Color.Red,
+                                            shape = CircleShape
+                                        )
+                                )
 
-                            Text(
-                                text = if (isConnected) "Online" else "Offline",
-                                color = Color.White,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium
+                                Text(
+                                    text = if (isConnected) "Online" else "Offline",
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+
+                        // Settings Icon
+                        IconButton(onClick = { viewModel.promptPasswordForSettings() }) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_settings),
+                                contentDescription = stringResource(R.string.settings_button),
+                                tint = Color.White
                             )
                         }
-                    }
 
-                    // Settings Icon
-                    IconButton(onClick = { viewModel.promptPasswordForSettings() }) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_settings),
-                            contentDescription = stringResource(R.string.settings_button),
-                            tint = Color.White
-                        )
-                    }
+                        // Lock/Unlock Icon
+                        IconButton(onClick = { viewModel.toggleUnlock() }) {
+                            Icon(
+                                imageVector = if (unlockLayout) Icons.Filled.LockOpen else Icons.Filled.Lock,
+                                contentDescription = if (unlockLayout) stringResource(R.string.unlock_button) else stringResource(
+                                    R.string.lock_button
+                                ),
+                                tint = Color.White
+                            )
+                        }
 
-                    // Lock/Unlock Icon
-                    IconButton(onClick = { viewModel.toggleUnlock() }) {
-                        Icon(
-                            imageVector = if (unlockLayout) Icons.Filled.LockOpen else Icons.Filled.Lock,
-                            contentDescription = if (unlockLayout) stringResource(R.string.unlock_button) else stringResource(R.string.lock_button),
-                            tint = Color.White
-                        )
-                    }
-
-                    // Menu Icon
-                    IconButton(onClick = { showEventLog.value = true }) {
-                        Icon(
-                            Icons.Default.Menu,
-                            contentDescription = "Menu",
-                            tint = Color.White
-                        )
+                        // Menu Icon
+                        IconButton(onClick = { showEventLog.value = true }) {
+                            Icon(
+                                Icons.Default.Menu,
+                                contentDescription = "Menu",
+                                tint = Color.White
+                            )
+                        }
                     }
                 }
             }
@@ -557,7 +561,11 @@ fun MainScreen(viewModel: DeviceViewModel) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = 72.dp, bottom = 100.dp) // Space for top bar and bottom button
+                .padding(
+                    top = if (showFullscreen) 0.dp else 72.dp,
+                    bottom = if (showFullscreen) 0.dp else 100.dp
+                )
+                //.padding(top = 72.dp, bottom = 100.dp) // Space for top bar and bottom button
         ) {
             floorplanUri?.let {
                 Box(
@@ -760,43 +768,45 @@ fun MainScreen(viewModel: DeviceViewModel) {
         }
 
         // Bottom Reset Button
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(horizontal = 50.dp, vertical = 24.dp)
-                .zIndex(5f)
-        ) {
-            Button(
-                onClick = { viewModel.resetAlerts() },
+        if (!showFullscreen) {
+            Box(
                 modifier = Modifier
+                    .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .height(56.dp),
-                colors = ButtonDefaults.buttonColors(
-                    backgroundColor = resetButtonColor,
-                    contentColor = Color.White
-                ),
-                shape = RoundedCornerShape(28.dp),
-                elevation = ButtonDefaults.elevation(
-                    defaultElevation = 8.dp,
-                    pressedElevation = 12.dp
-                )
+                    .padding(horizontal = 50.dp, vertical = 24.dp)
+                    .zIndex(5f)
             ) {
-                Row(
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
+                Button(
+                    onClick = { viewModel.resetAlerts() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        backgroundColor = resetButtonColor,
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(28.dp),
+                    elevation = ButtonDefaults.elevation(
+                        defaultElevation = 8.dp,
+                        pressedElevation = 12.dp
+                    )
                 ) {
-                    Text(
-                        text = "Reset",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "→",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Reset",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "→",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }

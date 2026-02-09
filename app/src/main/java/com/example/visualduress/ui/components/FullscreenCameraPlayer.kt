@@ -147,7 +147,7 @@ fun FullscreenCameraPlayer(
         // Bottom Info Bar (optional)
         Box(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
+                .align(Alignment.BottomCenter)  // Changed from BottomEnd to BottomCenter
                 .fillMaxWidth()
                 .height(60.dp)
                 .background(
@@ -164,7 +164,7 @@ fun FullscreenCameraPlayer(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 20.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically  // Re-enable this for proper vertical centering
             ) {
                 // Camera Stream Info
                 Column {
