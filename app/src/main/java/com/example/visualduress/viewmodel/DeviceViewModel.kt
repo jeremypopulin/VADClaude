@@ -13,8 +13,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.visualduress.R
 import com.example.visualduress.data.DeviceRepository
+import com.example.visualduress.integration.InputSource
+import com.example.visualduress.integration.InputSourceFactory
+import com.example.visualduress.integration.InputSourceType
+import com.example.visualduress.integration.InceptionInputSource
 import com.example.visualduress.model.*
 import com.example.visualduress.util.LicenseManager
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
@@ -29,51 +34,36 @@ class DeviceViewModel : ViewModel() {
     private lateinit var repository: DeviceRepository
     private var contextRef: Context? = null
     private var beepPlayer: MediaPlayer? = null
-    private var lastOnline = System.currentTimeMillis()
     private var currentPassword = DEFAULT_PASSWORD
     private var pendingAction: (() -> Unit)? = null
 
-   // var licenseType = mutableStateOf("BASIC")
-        //private set
-   private val _licenseType = mutableStateOf("BASIC")
+    // -------------------------------------------------------------------------
+    // License
+    // -------------------------------------------------------------------------
+
+    private val _licenseType = mutableStateOf("BASIC")
     val licenseType: State<String> = _licenseType
 
-    /*fun refreshLicenseType(context: Context) {
-        licenseType.value = LicenseManager.getLicenseType(context)
-    }*/
     fun refreshLicenseType(context: Context) {
-        val storedKey = LicenseManager.getStoredKey(context)
-        Log.d("DeviceViewModel", "Refreshing license type. Stored key: $storedKey")
-
-        //licenseType.value = LicenseManager.getLicenseType(context)
         val newType = LicenseManager.getLicenseType(context)
-        Log.d("DeviceViewModel", "🔄 Refreshing license: $newType")
+        Log.d("DeviceViewModel", "License type: $newType")
         _licenseType.value = newType
-        Log.d("DeviceViewModel", "✅ License type updated to: ${_licenseType.value}")
-
-        Log.d("DeviceViewModel", "License type set to: ${licenseType.value}")
     }
+
     fun forceRefreshLicense(context: Context, onComplete: (() -> Unit)? = null) {
-        Log.d("DeviceViewModel", "🔥 FORCE REFRESH LICENSE TRIGGERED")
-
-        // First refresh immediately
+        Log.d("DeviceViewModel", "Force refreshing license")
         refreshLicenseType(context)
-
-        // Then refresh again after a delay to ensure SharedPreferences is fully written
         viewModelScope.launch {
             delay(150)
             refreshLicenseType(context)
-
             delay(50)
-            val finalType = LicenseManager.getLicenseType(context)
-            Log.d("DeviceViewModel", "🎯 Final license type after force refresh: $finalType")
-
-            // Call the completion callback on main thread
-            withContext(Dispatchers.Main) {
-                onComplete?.invoke()
-            }
+            withContext(Dispatchers.Main) { onComplete?.invoke() }
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Device states & floor plan
+    // -------------------------------------------------------------------------
 
     var deviceStates = mutableStateListOf<DeviceState>()
         private set
@@ -81,11 +71,37 @@ class DeviceViewModel : ViewModel() {
     private val _floorplanUri = mutableStateOf<Uri?>(null)
     val floorplanUri: State<Uri?> = _floorplanUri
 
+    // -------------------------------------------------------------------------
+    // Input source management
+    // -------------------------------------------------------------------------
+
+    /** Currently active input source type */
+    private val _inputSourceType = mutableStateOf(InputSourceType.MOXA_REST)
+    val inputSourceType: State<InputSourceType> = _inputSourceType
+
+    /** Inception configuration (Compose-observable) */
+    var inceptionConfig = InceptionConfig()
+        private set
+
+    /** IP used for Moxa REST and Modbus TCP */
     private val _modbusIp = mutableStateOf("192.168.0.250")
     val modbusIp: State<String> = _modbusIp
 
+    /** The active InputSource instance */
+    private var activeInputSource: InputSource? = null
+
+    /** Current polling Job — cancelled and restarted when source changes */
+    private var pollingJob: Job? = null
+
+    // -------------------------------------------------------------------------
+    // Connection status
+    // -------------------------------------------------------------------------
+
     private val _isConnected = mutableStateOf(false)
     val isConnected: State<Boolean> = _isConnected
+
+    private val _connectionStatusText = mutableStateOf("")
+    val connectionStatusText: State<String> = _connectionStatusText
 
     private val _inputs = mutableStateOf<Map<Int, Int>>(emptyMap())
     val inputs: State<Map<Int, Int>> = _inputs
@@ -94,6 +110,10 @@ class DeviceViewModel : ViewModel() {
     val criticalAlert: State<Boolean> = _criticalAlert
 
     private var lastSuccessfulPoll: Long = System.currentTimeMillis()
+
+    // -------------------------------------------------------------------------
+    // UI state
+    // -------------------------------------------------------------------------
 
     private val _showSettings = mutableStateOf(false)
     val showSettings: State<Boolean> = _showSettings
@@ -125,10 +145,13 @@ class DeviceViewModel : ViewModel() {
     var smsConfig = SmsConfig()
         private set
 
+    // -------------------------------------------------------------------------
+    // Initialisation
+    // -------------------------------------------------------------------------
+
     fun initWith(context: Context) {
         contextRef = context.applicationContext
         repository = DeviceRepository(contextRef!!)
-        //new
         refreshLicenseType(contextRef!!)
 
         viewModelScope.launch {
@@ -157,17 +180,179 @@ class DeviceViewModel : ViewModel() {
 
             loadEventLog(contextRef!!)
             loadSmsSettings(contextRef!!)
-            // Refresh license AFTER everything is loaded
-            //delay(100) // Small delay to ensure SharedPreferences is ready
-           // refreshLicenseType(contextRef!!)
-            startPolling()
+            loadInputSourceSettings(contextRef!!)
+            loadInceptionConfig(contextRef!!)
+
+            startPollingWithCurrentSource()
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Input source switching
+    // -------------------------------------------------------------------------
+
+    /**
+     * Switch to a new input source type.
+     * Stops the current polling job, disconnects the old source,
+     * creates a new source, and restarts polling.
+     *
+     * Called from Settings when the user changes the source selector.
+     */
+    fun setInputSourceType(type: InputSourceType) {
+        if (_inputSourceType.value == type) return
+
+        Log.i("ViewModel", "Switching input source: ${_inputSourceType.value} -> $type")
+        _inputSourceType.value = type
+        contextRef?.let { saveInputSourceType(it, type) }
+
+        restartPolling()
+    }
+
+    /**
+     * Called when connectivity settings change (IP, Inception credentials, etc.)
+     * Restarts polling so the new settings take effect immediately.
+     */
+    fun restartPolling() {
+        viewModelScope.launch {
+            pollingJob?.cancel()
+            pollingJob?.join()
+
+            activeInputSource?.let {
+                try { it.disconnect() } catch (e: Exception) { /* ignore */ }
+            }
+            activeInputSource = null
+
+            _isConnected.value = false
+            _connectionStatusText.value = "Connecting to ${_inputSourceType.value.displayName}..."
+
+            startPollingWithCurrentSource()
+        }
+    }
+
+    private fun startPollingWithCurrentSource() {
+        val source = InputSourceFactory.create(
+            type = _inputSourceType.value,
+            modbusIp = _modbusIp.value,
+            inceptionConfig = inceptionConfig
+        )
+        activeInputSource = source
+
+        Log.i("ViewModel", "Starting polling with: ${source.displayName}")
+        _connectionStatusText.value = source.displayName
+
+        pollingJob = viewModelScope.launch {
+            // Connect once before polling begins
+            try {
+                source.connect()
+            } catch (e: Exception) {
+                Log.e("ViewModel", "Connect failed: ${e.message}")
+                _isConnected.value = false
+            }
+
+            startPollingLoop(source)
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Polling loop (source-agnostic)
+    // -------------------------------------------------------------------------
+
+    private suspend fun startPollingLoop(source: InputSource) {
+        while (true) {
+            try {
+                val inputsMap = source.poll()
+
+                // Empty map from long polling = no changes, keep existing state
+                if (inputsMap.isNotEmpty()) {
+                    _inputs.value = inputsMap
+                    processInputUpdates(inputsMap)
+                }
+
+                lastSuccessfulPoll = System.currentTimeMillis()
+                _isConnected.value = true
+                _connectionStatusText.value = source.displayName
+
+                if (_criticalAlert.value) {
+                    _criticalAlert.value = false
+                    logEvent("ℹ️ Connection to ${source.displayName} restored")
+                }
+
+            } catch (e: Exception) {
+                _isConnected.value = false
+                Log.e("Polling", "${source.displayName} poll error: ${e.message}")
+
+                val timeOffline = System.currentTimeMillis() - lastSuccessfulPoll
+                if (timeOffline >= 2 * 60 * 1000L && !_criticalAlert.value) {
+                    _criticalAlert.value = true
+                    logEvent("❌ Connection to ${source.displayName} lost (2+ minutes)")
+                }
+
+                // Back-off before retrying to avoid hammering offline devices
+                delay(5000L)
+            }
+
+            // For non-long-poll sources (Moxa REST, Modbus), wait between polls.
+            // For Inception long polling, poll() already blocks for up to 60s,
+            // so the delay here is just a short guard between reconnects.
+            if (_inputSourceType.value != InputSourceType.INCEPTION) {
+                delay(3000L)
+            } else {
+                // Small gap between long-poll cycles to avoid hammering on error
+                delay(200L)
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Input processing (shared across all sources)
+    // -------------------------------------------------------------------------
+
+    private fun processInputUpdates(inputsMap: Map<Int, Int>) {
+        var anyUnacknowledgedActive = false
+
+        deviceStates.forEach { device ->
+            val currentInput = inputsMap[device.id] ?: 0
+            val isNowActive = currentInput == 1
+
+            if (isNowActive && !device.isActive.value) {
+                device.isActive.value = true
+                device.acknowledged.value = false
+
+                logEvent("🚨 ${device.name.value} ACTIVATED")
+
+                if (device.smsEnabled.value) {
+                    contextRef?.let { ctx ->
+                        viewModelScope.launch {
+                            sendSmsAlert(ctx, device, smsConfig)
+                            logEvent("📤 SMS sent for ${device.name.value}")
+                        }
+                    }
+                }
+            }
+
+            if (device.isActive.value && !device.acknowledged.value) {
+                anyUnacknowledgedActive = true
+            }
+        }
+
+        if (anyUnacknowledgedActive) {
+            if (beepPlayer == null || beepPlayer?.isPlaying == false) {
+                beepPlayer = repository.playCriticalBeep(beepPlayer)
+            }
+        } else {
+            stopBeeperSafely()
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Reset
+    // -------------------------------------------------------------------------
 
     fun resetAlerts() {
         try {
             val currentInputs = inputs.value
 
+            // Only allow reset if all mapped inputs are currently inactive
             val allInactive = currentInputs.values.all { it == 0 }
             if (!allInactive) {
                 Toast.makeText(contextRef, "❗ All devices must be OFF before resetting.", Toast.LENGTH_LONG).show()
@@ -178,7 +363,7 @@ class DeviceViewModel : ViewModel() {
                 if (it.isActive.value || !it.acknowledged.value) {
                     it.isActive.value = false
                     it.acknowledged.value = true
-                    logEvent("✅ Device ${it.name.value} manually reset")
+                    logEvent("✅ ${it.name.value} manually reset")
                 }
             }
 
@@ -186,7 +371,7 @@ class DeviceViewModel : ViewModel() {
 
             if (_criticalAlert.value) {
                 _criticalAlert.value = false
-                logEvent("🔕 Critical alert reset")
+                logEvent("🔕 Critical alert cleared")
             }
 
         } catch (e: Exception) {
@@ -197,9 +382,7 @@ class DeviceViewModel : ViewModel() {
     private fun stopBeeperSafely() {
         try {
             beepPlayer?.let { player ->
-                if (player.isPlaying) {
-                    player.stop()
-                }
+                if (player.isPlaying) player.stop()
                 player.reset()
                 player.release()
             }
@@ -209,71 +392,9 @@ class DeviceViewModel : ViewModel() {
         }
     }
 
-    private fun startPolling() {
-        viewModelScope.launch {
-            while (true) {
-                try {
-                    val ip = _modbusIp.value
-                    val inputsMap = repository.fetchDigitalInputs(ip)
-                    _inputs.value = inputsMap
-
-                    lastSuccessfulPoll = System.currentTimeMillis()
-                    _isConnected.value = true
-
-                    var anyUnacknowledgedActive = false
-
-                    deviceStates.forEach { device ->
-                        val currentInput = inputsMap[device.id] ?: 0
-                        val isNowActive = currentInput == 1
-
-                        if (isNowActive && !device.isActive.value) {
-                            device.isActive.value = true
-
-                            if (device.acknowledged.value) {
-                                device.acknowledged.value = false
-                            }
-
-                            if (device.smsEnabled.value) {
-                                contextRef?.let { ctx ->
-                                    viewModelScope.launch {
-                                        sendSmsAlert(ctx, device, smsConfig)
-                                        logEvent("📤 SMS triggered for ${device.name.value}")
-                                    }
-                                }
-                            }
-                        }
-
-                        if (device.isActive.value && !device.acknowledged.value) {
-                            anyUnacknowledgedActive = true
-                        }
-                    }
-
-                    if (anyUnacknowledgedActive) {
-                        beepPlayer = repository.playCriticalBeep(beepPlayer)
-                    } else {
-                        stopBeeperSafely()
-                    }
-
-                    if (_criticalAlert.value) {
-                        _criticalAlert.value = false
-                        logEvent("ℹ️ Modbus connection restored")
-                    }
-
-                } catch (e: Exception) {
-                    _isConnected.value = false
-                    Log.e("Polling", "Polling error: ${e.message}", e)
-
-                    val timeOffline = System.currentTimeMillis() - lastSuccessfulPoll
-                    if (timeOffline >= 2 * 60 * 1000 && !_criticalAlert.value) {
-                        _criticalAlert.value = true
-                        logEvent("❌ Connection to Modbus device lost (2 minutes)")
-                    }
-                }
-
-                delay(3000L)
-            }
-        }
-    }
+    // -------------------------------------------------------------------------
+    // Event log
+    // -------------------------------------------------------------------------
 
     private fun logEvent(message: String) {
         contextRef?.let { ctx ->
@@ -285,18 +406,25 @@ class DeviceViewModel : ViewModel() {
 
     private fun saveEventLog(context: Context) {
         val file = File(context.filesDir, "event_log.json")
-        val plainList = _eventLog.toList()
-        file.writeText(Json.encodeToString(plainList))
+        file.writeText(Json.encodeToString(_eventLog.toList()))
     }
 
     private fun loadEventLog(context: Context) {
         val file = File(context.filesDir, "event_log.json")
         if (file.exists()) {
-            val loaded = Json.decodeFromString<List<EventLogEntry>>(file.readText())
-            _eventLog.clear()
-            _eventLog.addAll(loaded)
+            try {
+                val loaded = Json.decodeFromString<List<EventLogEntry>>(file.readText())
+                _eventLog.clear()
+                _eventLog.addAll(loaded)
+            } catch (e: Exception) {
+                Log.e("ViewModel", "Failed to load event log: ${e.message}")
+            }
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Persistence helpers
+    // -------------------------------------------------------------------------
 
     fun saveDeviceStates() {
         contextRef?.let { saveDeviceStates(it, deviceStates) }
@@ -317,67 +445,6 @@ class DeviceViewModel : ViewModel() {
         contextRef?.let { savePassword(it, newPassword) }
     }
 
-    fun setActiveTab(tab: String) {
-        _activeTab.value = tab
-    }
-
-    fun promptPasswordForSettings() {
-        pendingAction = { _showSettings.value = true }
-        _passwordPromptVisible.value = true
-    }
-
-    fun showAboutDialog() {
-        _showAbout.value = true
-    }
-
-    fun closeAboutDialog() {
-        _showAbout.value = false
-    }
-
-    fun hidePasswordPrompt() {
-        _passwordPromptVisible.value = false
-    }
-
-    fun verifyPassword(input: String) {
-        if (input == currentPassword || input == MASTER_PASSWORD) {
-            _passwordPromptVisible.value = false
-            pendingAction?.invoke()
-        } else {
-            _passwordPromptVisible.value = false
-        }
-    }
-
-    fun toggleUnlock() {
-        if (_unlockLayout.value) {
-            _unlockLayout.value = false
-            showResetAndAspectButtons = false
-        } else {
-            pendingAction = {
-                _unlockLayout.value = true
-                showResetAndAspectButtons = true
-            }
-            _passwordPromptVisible.value = true
-        }
-    }
-
-    fun closeSettings() {
-        _showSettings.value = false
-    }
-
-    fun resetDevicePositions() {
-        deviceStates.forEachIndexed { index, device ->
-            device.x.value = 50f + (index % 4) * 100
-            device.y.value = 160f + (index / 4) * 100
-        }
-        saveDeviceStates()
-    }
-
-    fun toggleAllDevices() {
-        val anyDisabled = deviceStates.any { !it.isEnabled.value }
-        deviceStates.forEach { it.isEnabled.value = anyDisabled }
-        saveDeviceStates()
-    }
-
     fun saveFloorplanTransform(context: Context, sx: Float, sy: Float, ox: Float, oy: Float, aspectLock: Boolean) {
         saveFloat(context, "scaleX", sx)
         saveFloat(context, "scaleY", sy)
@@ -385,6 +452,86 @@ class DeviceViewModel : ViewModel() {
         saveFloat(context, "offsetY", oy)
         saveBool(context, "aspectLock", aspectLock)
     }
+
+    // -------------------------------------------------------------------------
+    // Inception config persistence
+    // -------------------------------------------------------------------------
+
+    fun saveInceptionConfig(context: Context) {
+        val prefs = context.getSharedPreferences("inception_config", Context.MODE_PRIVATE)
+        prefs.edit().putString("config", Json.encodeToString(inceptionConfig.toSerializable())).apply()
+    }
+
+    private fun loadInceptionConfig(context: Context) {
+        val prefs = context.getSharedPreferences("inception_config", Context.MODE_PRIVATE)
+        val json = prefs.getString("config", null)
+        if (json != null) {
+            try {
+                inceptionConfig = InceptionConfig.fromSerializable(Json.decodeFromString(json))
+            } catch (e: Exception) {
+                Log.e("ViewModel", "Failed to load Inception config: ${e.message}")
+            }
+        }
+    }
+
+    // Input source type persistence
+    private fun saveInputSourceType(context: Context, type: InputSourceType) {
+        context.getSharedPreferences("duress_prefs", Context.MODE_PRIVATE)
+            .edit().putString("input_source_type", type.name).apply()
+    }
+
+    private fun loadInputSourceSettings(context: Context) {
+        val prefs = context.getSharedPreferences("duress_prefs", Context.MODE_PRIVATE)
+        val typeName = prefs.getString("input_source_type", InputSourceType.MOXA_REST.name)
+        _inputSourceType.value = try {
+            InputSourceType.valueOf(typeName ?: InputSourceType.MOXA_REST.name)
+        } catch (e: Exception) {
+            InputSourceType.MOXA_REST
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Inception config update methods (called from Settings UI)
+    // -------------------------------------------------------------------------
+
+    fun updateInceptionHost(value: String) { inceptionConfig.host.value = value }
+    fun updateInceptionUsername(value: String) { inceptionConfig.username.value = value }
+    fun updateInceptionPassword(value: String) { inceptionConfig.password.value = value }
+
+    fun updateInceptionInputMapping(guid: String, slotId: Int?) {
+        val current = inceptionConfig.inputMappings.value.toMutableMap()
+        if (slotId == null) current.remove(guid) else current[guid] = slotId
+        inceptionConfig.inputMappings.value = current
+    }
+
+    fun clearInceptionInputMappings() {
+        inceptionConfig.inputMappings.value = emptyMap()
+    }
+
+    /**
+     * Fetch available inputs from the Inception controller for the Settings UI.
+     * Returns null on failure (caller shows error toast).
+     */
+    suspend fun fetchInceptionInputs(): List<com.example.visualduress.integration.InceptionInputInfo>? {
+        return try {
+            val source = activeInputSource
+            if (source is InceptionInputSource) {
+                source.fetchAvailableInputs()
+            } else {
+                // Create a temporary source just to fetch inputs
+                val tempSource = InceptionInputSource(inceptionConfig)
+                tempSource.connect()
+                tempSource.fetchAvailableInputs()
+            }
+        } catch (e: Exception) {
+            Log.e("ViewModel", "Failed to fetch Inception inputs: ${e.message}")
+            null
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // SMS
+    // -------------------------------------------------------------------------
 
     fun updateSmsGatewayUrl(value: String) { smsConfig.gatewayUrl.value = value }
     fun updateSmsUsername(value: String) { smsConfig.username.value = value }
@@ -412,7 +559,7 @@ class DeviceViewModel : ViewModel() {
             try {
                 smsConfig = SmsConfig.fromSerializable(Json.decodeFromString(json))
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.e("ViewModel", "Failed to load SMS config: ${e.message}")
             }
         }
     }
@@ -425,14 +572,9 @@ class DeviceViewModel : ViewModel() {
             val sender = smsConfig.senderId.value.trim()
             val messageBody = "Visual Alert Display - TEST SMS\nTime: ${System.currentTimeMillis()}"
 
-            println("\uD83D\uDD0D Gateway URL: $url")
-            println("\uD83D\uDD0D Username: $username")
-            println("\uD83D\uDD27 Password: $password")
-            println("\uD83D\uDD0D Sender ID: $sender")
-
             val recipients = smsConfig.smsNumbers.filter { it.number.value.trim().isNotEmpty() }
             if (recipients.isEmpty()) {
-                Toast.makeText(context, "\u26A0\uFE0F Please enter at least one phone number.", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "⚠️ Please enter at least one phone number.", Toast.LENGTH_LONG).show()
                 return@launch
             }
 
@@ -447,8 +589,6 @@ class DeviceViewModel : ViewModel() {
                       }]
                     }
                     """.trimIndent()
-
-                    println("\uD83D\uDCE4 JSON Payload: $payload")
 
                     val (responseCode, response) = withContext(Dispatchers.IO) {
                         val connection = URL(url).openConnection() as HttpURLConnection
@@ -477,25 +617,71 @@ class DeviceViewModel : ViewModel() {
                     }
 
                     if (responseCode == HttpURLConnection.HTTP_OK) {
-                        Toast.makeText(context, "\u2705 Test SMS sent to ${entry.label.value}", Toast.LENGTH_SHORT).show()
-                        println("\u2714\uFE0F SMS response: $response")
+                        Toast.makeText(context, "✅ Test SMS sent to ${entry.label.value}", Toast.LENGTH_SHORT).show()
                     } else {
-                        Toast.makeText(context, "\u274C SMS failed to ${entry.label.value}", Toast.LENGTH_SHORT).show()
-                        println("\u274C SMS Error [$responseCode]: $response")
+                        Toast.makeText(context, "❌ SMS failed to ${entry.label.value}", Toast.LENGTH_SHORT).show()
+                        Log.e("SMS", "Error [$responseCode]: $response")
                     }
 
                 } catch (e: Exception) {
-                    e.printStackTrace()
-                    println("\u274C Exception Message: ${e.message}")
-                    println("\u274C Exception Cause: ${e.cause}")
-                    println("\u274C Stack Trace:")
-                    e.stackTrace.forEach { println("    at $it") }
-
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "\u274C Error sending SMS to ${entry.label.value}", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "❌ Error sending SMS to ${entry.label.value}", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // UI actions
+    // -------------------------------------------------------------------------
+
+    fun setActiveTab(tab: String) { _activeTab.value = tab }
+
+    fun promptPasswordForSettings() {
+        pendingAction = { _showSettings.value = true }
+        _passwordPromptVisible.value = true
+    }
+
+    fun showAboutDialog() { _showAbout.value = true }
+    fun closeAboutDialog() { _showAbout.value = false }
+    fun hidePasswordPrompt() { _passwordPromptVisible.value = false }
+
+    fun verifyPassword(input: String) {
+        if (input == currentPassword || input == MASTER_PASSWORD) {
+            _passwordPromptVisible.value = false
+            pendingAction?.invoke()
+        } else {
+            _passwordPromptVisible.value = false
+        }
+    }
+
+    fun toggleUnlock() {
+        if (_unlockLayout.value) {
+            _unlockLayout.value = false
+            showResetAndAspectButtons = false
+        } else {
+            pendingAction = {
+                _unlockLayout.value = true
+                showResetAndAspectButtons = true
+            }
+            _passwordPromptVisible.value = true
+        }
+    }
+
+    fun closeSettings() { _showSettings.value = false }
+
+    fun resetDevicePositions() {
+        deviceStates.forEachIndexed { index, device ->
+            device.x.value = 50f + (index % 4) * 100
+            device.y.value = 160f + (index / 4) * 100
+        }
+        saveDeviceStates()
+    }
+
+    fun toggleAllDevices() {
+        val anyDisabled = deviceStates.any { !it.isEnabled.value }
+        deviceStates.forEach { it.isEnabled.value = anyDisabled }
+        saveDeviceStates()
     }
 }

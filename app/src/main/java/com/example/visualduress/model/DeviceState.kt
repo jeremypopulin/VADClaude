@@ -14,7 +14,9 @@ data class DeviceState(
     var isLicensed: MutableState<Boolean> = mutableStateOf(false),
     var streamUrl: MutableState<String> = mutableStateOf(""),
     var cameraEnabled: MutableState<Boolean> = mutableStateOf(false),
-    var smsEnabled: MutableState<Boolean> = mutableStateOf(false)
+    var smsEnabled: MutableState<Boolean> = mutableStateOf(false),
+    // "white" or "black" — controls the device label text colour on the floor plan
+    var labelColor: MutableState<String> = mutableStateOf("white")
 ) {
     fun toSerializable(): SerializableDeviceState {
         return SerializableDeviceState(
@@ -29,7 +31,8 @@ data class DeviceState(
             isLicensed = isLicensed.value,
             streamUrl = streamUrl.value,
             cameraEnabled = cameraEnabled.value,
-            smsEnabled = smsEnabled.value
+            smsEnabled = smsEnabled.value,
+            labelColor = labelColor.value
         )
     }
 
@@ -47,7 +50,8 @@ data class DeviceState(
                 isLicensed = mutableStateOf(data.isLicensed),
                 streamUrl = mutableStateOf(data.streamUrl),
                 cameraEnabled = mutableStateOf(data.cameraEnabled),
-                smsEnabled = mutableStateOf(data.smsEnabled)
+                smsEnabled = mutableStateOf(data.smsEnabled),
+                labelColor = mutableStateOf(data.labelColor)
             )
         }
     }

@@ -9,11 +9,14 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.*
 import androidx.compose.material.icons.Icons
@@ -27,14 +30,20 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.example.visualduress.R
-import com.example.visualduress.ui.components.AdvancedModernSlider
-import com.example.visualduress.ui.components.ModernSlider
+import com.example.visualduress.integration.InceptionInputInfo
+import com.example.visualduress.integration.InputSourceType
+import com.example.visualduress.ui.components.CameraUrlBuilder
 import com.example.visualduress.ui.theme.AccentBlue
+import com.example.visualduress.ui.theme.AccentOrange
 import com.example.visualduress.ui.theme.ActiveTabColor
 import com.example.visualduress.ui.theme.CloseButtonColor
 import com.example.visualduress.ui.theme.DarkBlue
@@ -45,6 +54,7 @@ import com.example.visualduress.ui.theme.TextPrimary
 import com.example.visualduress.ui.theme.TextSecondary
 import com.example.visualduress.viewmodel.DeviceViewModel
 import com.example.visualduress.util.*
+import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsDialog(
@@ -52,8 +62,6 @@ fun SettingsDialog(
     launcher: ActivityResultLauncher<Array<String>>
 ) {
     val context = LocalContext.current
-    //val licenseType by viewModel.licenseType
-    //val isBasic = licenseType == "BASIC"
     val licenseType by viewModel.licenseType
     val isBasic = licenseType != "PREMIUM"
     val initialTab = if (LicenseManager.isLicenseValid(context)) "devices" else "license"
@@ -82,82 +90,73 @@ fun SettingsDialog(
         }
     }
 
-    AlertDialog(
-        modifier = Modifier
-            .fillMaxWidth(0.95f)
-            .fillMaxHeight(0.9f),
+    // Use Dialog instead of AlertDialog to prevent internal scrolling
+    Dialog(
         onDismissRequest = { viewModel.closeSettings() },
-        buttons = {},
-        backgroundColor = DialogBackground,
-        shape = RoundedCornerShape(16.dp),
-        text = {
-            Box(modifier = Modifier.fillMaxSize()) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    // Modern Header
-                    ModernDialogHeader()
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .fillMaxHeight(0.9f),
+            color = DialogBackground,
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                // Header
+                ModernDialogHeader()
 
-                    // Modern Tab Navigation with Custom Icons
-                    ModernTabNavigation(
-                        activeTab = activeTab,
-                        isBasic = isBasic,
-                        onTabChange = { activeTabState.value = it }
-                    )
+                // Tabs
+                ModernTabNavigation(
+                    activeTab = activeTab,
+                    isBasic = isBasic,
+                    onTabChange = { activeTabState.value = it }
+                )
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                    // Content Area
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp)
-                    ) {
-                        when (activeTab) {
-                            "devices" -> DeviceSettingsContent(viewModel, isBasic)
-                            "floorplan" -> FloorplanContent(viewModel, launcher, floorplanUri)
-                            "ip" -> IpContent(viewModel, modbusIp, context)
-                            "password" -> PasswordContent(
-                                viewModel,
-                                newPassword,
-                                context,
-                                onPasswordChange = { newPassword = it }
-                            )
-                            "sms" -> {
-                                if (!isBasic) {
-                                    SmsSettings(viewModel)
-                                }
-                            }
-                            "license" -> LicenseContent(
-                                viewModel,
-                                context,
-                                licenseKey,
-                                onLicenseKeyChange = { licenseKey = it },
-                                deviceId,
-                                licenseType
-                            )
-                            "about" -> AboutContent(appVersion, companyName, websiteUrl)
-                        }
+                // Content area - takes all remaining space between tabs and close button
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                ) {
+                    when (activeTab) {
+                        "devices"   -> DeviceSettingsContent(viewModel, isBasic)
+                        "floorplan" -> FloorplanContent(viewModel, launcher, floorplanUri)
+                        "ip"        -> IpContent(viewModel, modbusIp, context)
+                        "password"  -> PasswordContent(
+                            viewModel, newPassword, context,
+                            onPasswordChange = { newPassword = it }
+                        )
+                        "sms"       -> { if (!isBasic) SmsSettings(viewModel) }
+                        "license"   -> LicenseContent(
+                            viewModel, context, licenseKey,
+                            onLicenseKeyChange = { licenseKey = it },
+                            deviceId, licenseType
+                        )
+                        "about"     -> AboutContent(appVersion, companyName, websiteUrl)
                     }
-
-                    // Modern Close Button
-                    ModernCloseButton(
-                        onClick = { viewModel.closeSettings() }
-                    )
                 }
+
+                // Close button always anchored at bottom
+                ModernCloseButton(onClick = { viewModel.closeSettings() })
             }
         }
-    )
+    }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Header
+// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun ModernDialogHeader() {
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            //.background(HeaderBackground),
             .padding(16.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
@@ -168,13 +167,13 @@ private fun ModernDialogHeader() {
             modifier = Modifier.height(30.dp)
         )
         Spacer(modifier = Modifier.width(8.dp))
-        Text(
-            text = "Visual Alert Display",
-            color = TextPrimary,
-            fontSize = 16.sp
-        )
+        Text("Visual Alert Display", color = TextPrimary, fontSize = 16.sp)
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tab navigation
+// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun ModernTabNavigation(
@@ -188,67 +187,18 @@ private fun ModernTabNavigation(
             .padding(horizontal = 8.dp),
         horizontalArrangement = Arrangement.SpaceEvenly
     ) {
-        ModernIconTabDrawable(
-            tabId = "devices",
-            activeTab = activeTab,
-            iconRes = R.drawable.ic_devices,
-            label = "Devices",
-            onClick = { onTabChange("devices") }
-        )
-
-        ModernIconTabDrawable(
-            tabId = "floorplan",
-            activeTab = activeTab,
-            iconRes = R.drawable.ic_floorplan,
-            label = "Floorplan",
-            onClick = { onTabChange("floorplan") }
-        )
-
-        ModernIconTabDrawable(
-            tabId = "ip",
-            activeTab = activeTab,
-            iconRes = R.drawable.ic_ip,
-            label = "IP",
-            onClick = { onTabChange("ip") }
-        )
-
-        ModernIconTabDrawable(
-            tabId = "password",
-            activeTab = activeTab,
-            iconRes = R.drawable.ic_password,
-            label = "Password",
-            onClick = { onTabChange("password") }
-        )
-
+        ModernIconTabDrawable("devices",   activeTab, R.drawable.ic_devices,  "Devices",   { onTabChange("devices") })
+        ModernIconTabDrawable("floorplan", activeTab, R.drawable.ic_floorplan,"Floorplan", { onTabChange("floorplan") })
+        ModernIconTabDrawable("ip",        activeTab, R.drawable.ic_ip,       "Comms",     { onTabChange("ip") })
+        ModernIconTabDrawable("password",  activeTab, R.drawable.ic_password, "Password",  { onTabChange("password") })
         if (!isBasic) {
-            ModernIconTabDrawable(
-                tabId = "sms",
-                activeTab = activeTab,
-                iconRes = R.drawable.ic_sms,
-                label = "SMS",
-                onClick = { onTabChange("sms") }
-            )
+            ModernIconTabDrawable("sms",   activeTab, R.drawable.ic_sms,      "SMS",       { onTabChange("sms") })
         }
-
-        ModernIconTabDrawable(
-            tabId = "license",
-            activeTab = activeTab,
-            iconRes = R.drawable.ic_license,
-            label = "Licence",
-            onClick = { onTabChange("license") }
-        )
-
-        ModernIconTabDrawable(
-            tabId = "about",
-            activeTab = activeTab,
-            iconRes = R.drawable.ic_about,
-            label = "About",
-            onClick = { onTabChange("about") }
-        )
+        ModernIconTabDrawable("license",   activeTab, R.drawable.ic_license,  "Licence",   { onTabChange("license") })
+        ModernIconTabDrawable("about",     activeTab, R.drawable.ic_about,    "About",     { onTabChange("about") })
     }
 }
 
-// Custom Drawable Icon Tab (Use this with Figma exports)
 @Composable
 fun ModernIconTabDrawable(
     tabId: String,
@@ -258,7 +208,6 @@ fun ModernIconTabDrawable(
     onClick: () -> Unit
 ) {
     val isActive = activeTab == tabId
-
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.width(62.dp)
@@ -279,9 +228,7 @@ fun ModernIconTabDrawable(
                 modifier = Modifier.size(24.dp)
             )
         }
-
         Spacer(modifier = Modifier.height(6.dp))
-
         Text(
             text = label,
             color = if (isActive) ActiveTabColor else TextSecondary,
@@ -292,17 +239,12 @@ fun ModernIconTabDrawable(
     }
 }
 
-// Fallback: Material Icon Version (if you don't have custom icons yet)
 @Composable
 fun ModernIconTab(
-    tabId: String,
-    activeTab: String,
-    icon: ImageVector,
-    label: String,
-    onClick: () -> Unit
+    tabId: String, activeTab: String, icon: ImageVector,
+    label: String, onClick: () -> Unit
 ) {
     val isActive = activeTab == tabId
-
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.width(62.dp)
@@ -316,16 +258,9 @@ fun ModernIconTab(
                     shape = CircleShape
                 )
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = Color.White,
-                modifier = Modifier.size(24.dp)
-            )
+            Icon(imageVector = icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(24.dp))
         }
-
         Spacer(modifier = Modifier.height(6.dp))
-
         Text(
             text = label,
             color = if (isActive) ActiveTabColor else TextSecondary,
@@ -335,6 +270,10 @@ fun ModernIconTab(
         )
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Close button
+// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun ModernCloseButton(onClick: () -> Unit) {
@@ -349,32 +288,26 @@ private fun ModernCloseButton(onClick: () -> Unit) {
             contentColor = CloseButtonColor
         ),
         shape = RoundedCornerShape(26.dp),
-        elevation = ButtonDefaults.elevation(
-            defaultElevation = 0.dp,
-            pressedElevation = 2.dp
-        )
+        elevation = ButtonDefaults.elevation(defaultElevation = 0.dp, pressedElevation = 2.dp)
     ) {
-        Text(
-            text = "Close ×",
-            fontSize = 16.sp,
-            fontWeight = FontWeight.SemiBold
-        )
+        Text("Close ×", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Devices tab
+// ─────────────────────────────────────────────────────────────────────────────
+
 @Composable
 fun DeviceSettingsContent(viewModel: DeviceViewModel, isBasic: Boolean) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            "Device Settings",
-            fontSize = 20.sp,
-            color = TextPrimary,
-            fontWeight = FontWeight.Bold
-        )
+    Column(modifier = Modifier.fillMaxSize()) {
+        Text("Device Settings", fontSize = 20.sp, color = TextPrimary, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(16.dp))
 
         LazyColumn(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             items(viewModel.deviceStates) { device ->
@@ -394,13 +327,10 @@ fun DeviceSettingsContent(viewModel: DeviceViewModel, isBasic: Boolean) {
                     )
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // Device Name Field
+                    // Device name
                     OutlinedTextField(
                         value = device.name.value,
-                        onValueChange = {
-                            device.name.value = it
-                            viewModel.saveDeviceStates()
-                        },
+                        onValueChange = { device.name.value = it; viewModel.saveDeviceStates() },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         shape = RoundedCornerShape(8.dp),
@@ -423,7 +353,7 @@ fun DeviceSettingsContent(viewModel: DeviceViewModel, isBasic: Boolean) {
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Enabled Toggle
+                    // Enabled toggle
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -432,10 +362,7 @@ fun DeviceSettingsContent(viewModel: DeviceViewModel, isBasic: Boolean) {
                         Text("Enabled", color = TextPrimary)
                         Switch(
                             checked = device.isEnabled.value,
-                            onCheckedChange = {
-                                device.isEnabled.value = it
-                                viewModel.saveDeviceStates()
-                            },
+                            onCheckedChange = { device.isEnabled.value = it; viewModel.saveDeviceStates() },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = DarkBlue,
                                 checkedTrackColor = Color.White,
@@ -447,18 +374,73 @@ fun DeviceSettingsContent(viewModel: DeviceViewModel, isBasic: Boolean) {
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Size Slider
+                    // Label text colour picker
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Label Text Colour", color = TextPrimary)
+                            Text(
+                                "Use black text on light floor plans",
+                                fontSize = 11.sp,
+                                color = TextSecondary.copy(alpha = 0.7f)
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            // White option
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .background(
+                                        if (device.labelColor.value == "white") AccentOrange else TabIconBackground,
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable {
+                                        device.labelColor.value = "white"
+                                        viewModel.saveDeviceStates()
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .background(Color.White, RoundedCornerShape(4.dp))
+                                )
+                            }
+                            // Black option
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .background(
+                                        if (device.labelColor.value == "black") AccentOrange else TabIconBackground,
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable {
+                                        device.labelColor.value = "black"
+                                        viewModel.saveDeviceStates()
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .background(Color.Black, RoundedCornerShape(4.dp))
+                                        .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Size slider
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            "Size: ${device.size.value.toInt()}%",
-                            color = TextPrimary
-                        )
+                        Text("Size: ${device.size.value.toInt()}%", color = TextPrimary)
                         Slider(
                             value = device.size.value,
-                            onValueChange = {
-                                device.size.value = it
-                                viewModel.saveDeviceStates()
-                            },
+                            onValueChange = { device.size.value = it; viewModel.saveDeviceStates() },
                             valueRange = 30f..250f,
                             modifier = Modifier.fillMaxWidth(),
                             colors = SliderDefaults.colors(
@@ -467,82 +449,26 @@ fun DeviceSettingsContent(viewModel: DeviceViewModel, isBasic: Boolean) {
                                 inactiveTrackColor = Color.Black
                             )
                         )
-                        /*AdvancedModernSlider(
-                            value = device.size.value,
-                            onValueChange = {
-                                device.size.value = it
-                                viewModel.saveDeviceStates()
-                            },
-                            valueRange = 30f..250f,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            activeTrackColor = Color(0xFF4A90E2), // Cyan/Blue
-                            inactiveTrackColor = Color(0xFF2E3440), // Dark gray
-                            thumbColor = Color(0xFF5A6F83), // Medium gray
-                            thumbIconRes = R.drawable.ic_pause
-                        )*/
-                        /*ModernSlider(
-                            value = device.size.value,
-                            onValueChange = {
-                                device.size.value = it
-                                viewModel.saveDeviceStates()
-                            },
-                            valueRange = 30f..250f,
-                            modifier = Modifier.fillMaxWidth(),
-                            activeTrackColor = Color(0xFF4A90E2), // Blue active track
-                            inactiveTrackColor = Color(0xFF2E3440), // Dark inactive track
-                            thumbColor = Color(0xFF5A6F83), // Gray thumb
-                            thumbIconRes = R.drawable.ic_pause // Custom pause icon
-                        )*/
                     }
 
-                    // Advanced Section
+                    // Advanced section
                     if (advancedExpanded) {
                         Spacer(modifier = Modifier.height(12.dp))
-
-                        // Camera Stream URL
                         Text(
-                            "Camera Stream URL",
+                            "Camera Stream",
                             color = TextSecondary,
-                            fontSize = 14.sp
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        OutlinedTextField(
-                            value = device.streamUrl.value.orEmpty(),
-                            onValueChange = {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        CameraUrlBuilder(
+                            currentUrl = device.streamUrl.value,
+                            onUrlChanged = {
                                 device.streamUrl.value = it
                                 viewModel.saveDeviceStates()
-                            },
-                            placeholder = {
-                                Text(
-                                    "https://www.demo.com",
-                                    color = TextSecondary.copy(alpha = 0.5f)
-                                )
-                            },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(8.dp),
-                            colors = TextFieldDefaults.outlinedTextFieldColors(
-                                backgroundColor = TabIconBackground,
-                                textColor = Color.White,
-                                cursorColor = Color.White,
-                                focusedBorderColor = AccentBlue,
-                                unfocusedBorderColor = Color.Transparent
-                            ),
-                            leadingIcon = {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_link),
-                                    contentDescription = null,
-                                    tint = Color.White.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(20.dp)
-                                )
                             }
                         )
-
                         Spacer(modifier = Modifier.height(12.dp))
-
-                        // Enable Camera Link
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -552,24 +478,16 @@ fun DeviceSettingsContent(viewModel: DeviceViewModel, isBasic: Boolean) {
                             Switch(
                                 checked = device.cameraEnabled.value,
                                 onCheckedChange = if (isBasic) null else {
-                                    { isChecked ->
-                                        device.cameraEnabled.value = isChecked
-                                        viewModel.saveDeviceStates()
-                                    }
+                                    { device.cameraEnabled.value = it; viewModel.saveDeviceStates() }
                                 },
                                 enabled = !isBasic,
                                 colors = SwitchDefaults.colors(
-                                    checkedThumbColor = DarkBlue,
-                                    checkedTrackColor = Color.White,
-                                    uncheckedThumbColor = Color.White,
-                                    uncheckedTrackColor = Color.Black
+                                    checkedThumbColor = DarkBlue, checkedTrackColor = Color.White,
+                                    uncheckedThumbColor = Color.White, uncheckedTrackColor = Color.Black
                                 )
                             )
                         }
-
                         Spacer(modifier = Modifier.height(8.dp))
-
-                        // Enable SMS Alerts
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -579,34 +497,24 @@ fun DeviceSettingsContent(viewModel: DeviceViewModel, isBasic: Boolean) {
                             Switch(
                                 checked = device.smsEnabled.value,
                                 onCheckedChange = if (isBasic) null else {
-                                    { isChecked ->
-                                        device.smsEnabled.value = isChecked
-                                        viewModel.saveDeviceStates()
-                                    }
+                                    { device.smsEnabled.value = it; viewModel.saveDeviceStates() }
                                 },
                                 enabled = !isBasic,
                                 colors = SwitchDefaults.colors(
-                                    checkedThumbColor = DarkBlue,
-                                    checkedTrackColor = Color.White,
-                                    uncheckedThumbColor = Color.White,
-                                    uncheckedTrackColor = Color.Black
+                                    checkedThumbColor = DarkBlue, checkedTrackColor = Color.White,
+                                    uncheckedThumbColor = Color.White, uncheckedTrackColor = Color.Black
                                 )
                             )
                         }
                     }
 
-                    // Toggle Advanced
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
-                    ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         TextButton(onClick = { advancedExpanded = !advancedExpanded }) {
                             Text(
-                                text = if (advancedExpanded) "Hide Advanced" else "Show Advanced",
+                                if (advancedExpanded) "Hide Advanced" else "Show Advanced",
                                 color = Color.White,
                                 fontSize = 14.sp,
                                 textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline
-
                             )
                         }
                     }
@@ -618,108 +526,24 @@ fun DeviceSettingsContent(viewModel: DeviceViewModel, isBasic: Boolean) {
                 Button(
                     onClick = { viewModel.resetDevicePositions() },
                     modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        backgroundColor = TabIconBackground,
-                        contentColor = Color.White
-                    ),
+                    colors = ButtonDefaults.buttonColors(backgroundColor = TabIconBackground, contentColor = Color.White),
                     shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text("Reset Device Positions")
-                }
-
+                ) { Text("Reset Device Positions") }
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(
                     onClick = { viewModel.toggleAllDevices() },
                     modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        backgroundColor = TabIconBackground,
-                        contentColor = Color.White
-                    ),
+                    colors = ButtonDefaults.buttonColors(backgroundColor = TabIconBackground, contentColor = Color.White),
                     shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text("Toggle All Devices")
-                }
+                ) { Text("Toggle All Devices") }
             }
         }
     }
 }
 
-@Composable
-fun FloorplanContent(
-    viewModel: DeviceViewModel,
-    launcher: ActivityResultLauncher<Array<String>>,
-    floorplanUri: Uri?
-) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            "Floorplan Images",
-            fontSize = 24.sp,
-            color = TextPrimary,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(modifier = Modifier.height(20.dp))
-
-        // Select Floorplan Button
-        Button(
-            onClick = { launcher.launch(arrayOf("image/*")) },
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(
-                backgroundColor = ActiveTabColor,
-                contentColor = Color.White
-            ),
-            shape = RoundedCornerShape(12.dp),
-            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 14.dp)
-        ) {
-            Text(
-                "Select Floorplan Image",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("⌄", fontSize = 20.sp)
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Floorplan Image Preview
-        floorplanUri?.let { uri ->
-            AsyncImage(
-                model = uri,
-                contentDescription = "Selected Floorplan",
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(400.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color.White)
-            )
-        }
-
-        Spacer(modifier = Modifier.weight(1f))
-
-        // Remove Floorplan Button
-        if (floorplanUri != null) {
-            Button(
-                onClick = { viewModel.setFloorplanUri(Uri.EMPTY) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                colors = ButtonDefaults.buttonColors(
-                    backgroundColor = ActiveTabColor,
-                    contentColor = Color.White
-                ),
-                shape = RoundedCornerShape(28.dp)
-            ) {
-                Text(
-                    "Remove Floorplan",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("→", fontSize = 18.sp)
-            }
-        }
-    }
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Comms tab
+// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 fun IpContent(
@@ -727,230 +551,392 @@ fun IpContent(
     modbusIp: String,
     context: Context
 ) {
-    var ipInput by remember { mutableStateOf(modbusIp) }
+    val scope = rememberCoroutineScope()
+    val selectedSource by viewModel.inputSourceType
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        Text(
-            "I/O IP Settings",
-            fontSize = 24.sp,
-            color = TextPrimary,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(modifier = Modifier.height(20.dp))
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        item {
+            Text("Input Source", fontSize = 24.sp, color = TextPrimary, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "Choose which hardware integration supplies alarm inputs to VAD.",
+                fontSize = 13.sp,
+                color = TextSecondary.copy(alpha = 0.8f)
+            )
+        }
 
-        Text(
-            "Moxa IP Address",
-            fontSize = 14.sp,
-            color = TextPrimary,
-            fontWeight = FontWeight.Medium
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        OutlinedTextField(
-            value = ipInput,
-            onValueChange = { ipInput = it },
-            placeholder = {
-                Text(
-                    "Enter IP Address",
-                    color = TextSecondary.copy(alpha = 0.6f),
-                    fontSize = 14.sp
-                )
-            },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = TextFieldDefaults.outlinedTextFieldColors(
-                backgroundColor = InputFieldBackground,
-                textColor = Color.White,
-                cursorColor = Color.White,
-                focusedBorderColor = Color.Transparent,
-                unfocusedBorderColor = Color.Transparent
-            ),
-            leadingIcon = {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_device),
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.6f),
-                    modifier = Modifier.size(20.dp)
-                )
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                InputSourceType.values().forEach { type ->
+                    SourceSelectorCard(
+                        type = type,
+                        isSelected = selectedSource == type,
+                        onClick = { viewModel.setInputSourceType(type) }
+                    )
+                }
             }
-        )
+        }
 
-        Spacer(modifier = Modifier.weight(1f))
+        item {
+            Divider(color = Color.White.copy(alpha = 0.08f), thickness = 1.dp)
+        }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
+        when (selectedSource) {
+            InputSourceType.MOXA_REST  -> { item { MoxaRestConfig(viewModel, modbusIp, context) } }
+            InputSourceType.MODBUS_TCP -> { item { ModbusTcpConfig(viewModel, modbusIp, context) } }
+            InputSourceType.INCEPTION  -> {
+                item { InceptionConnectionConfig(viewModel, context) }
+                item { InceptionInputMappingConfig(viewModel, scope) }
+            }
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(8.dp))
+            var saved by remember { mutableStateOf(false) }
             Button(
                 onClick = {
-                    Toast.makeText(context, "Testing connection...", Toast.LENGTH_SHORT).show()
+                    viewModel.saveInceptionConfig(context)
+                    viewModel.restartPolling()
+                    saved = true
+                    Toast.makeText(context, "✅ Settings saved, reconnecting…", Toast.LENGTH_SHORT).show()
                 },
-                modifier = Modifier
-                    .weight(1f)
-                    .height(56.dp),
-                colors = ButtonDefaults.buttonColors(
-                    backgroundColor = TabIconBackground,
-                    contentColor = Color.White
-                ),
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                colors = ButtonDefaults.buttonColors(backgroundColor = ActiveTabColor, contentColor = Color.White),
                 shape = RoundedCornerShape(28.dp)
             ) {
-                Text("Test", fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Icon(
-                    Icons.Filled.Refresh,
-                    contentDescription = null,
-                    tint = AccentBlue,
-                    modifier = Modifier.size(20.dp)
-                )
+                Text(if (saved) "✅ Saved & Reconnecting" else "Save & Apply", fontSize = 16.sp, fontWeight = FontWeight.Medium)
             }
-
-            Button(
-                onClick = {
-                    if (ipInput.trim().isNotEmpty()) {
-                        viewModel.setModbusIp(ipInput.trim())
-                        Toast.makeText(context, "✅ IP saved", Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(context, "⚠️ Invalid IP", Toast.LENGTH_SHORT).show()
-                    }
-                },
-                modifier = Modifier
-                    .weight(1f)
-                    .height(56.dp),
-                colors = ButtonDefaults.buttonColors(
-                    backgroundColor = ActiveTabColor,
-                    contentColor = Color.White
-                ),
-                shape = RoundedCornerShape(28.dp)
-            ) {
-                Text("Save IP", fontSize = 16.sp, fontWeight = FontWeight.Medium)
+            LaunchedEffect(saved) {
+                if (saved) { kotlinx.coroutines.delay(2500); saved = false }
             }
         }
     }
 }
 
 @Composable
-fun PasswordContent(
-    viewModel: DeviceViewModel,
-    password: String,
-    context: Context,
-    onPasswordChange: (String) -> Unit
-) {
-    var confirmPassword by remember { mutableStateOf("") }
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        Text(
-            "Change Password",
-            fontSize = 24.sp,
-            color = TextPrimary,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text(
-            "New Password",
-            fontSize = 18.sp,
-            color = TextPrimary,
-            fontWeight = FontWeight.Medium
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        OutlinedTextField(
-            value = password,
-            onValueChange = onPasswordChange,
-            placeholder = {
-                Text(
-                    "********************",
-                    color = TextSecondary.copy(alpha = 0.6f),
-                    fontSize = 16.sp
-                )
-            },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = TextFieldDefaults.outlinedTextFieldColors(
-                backgroundColor = InputFieldBackground,
-                textColor = Color.White,
-                cursorColor = Color.White,
-                focusedBorderColor = Color.Transparent,
-                unfocusedBorderColor = Color.Transparent
-            ),
-            leadingIcon = {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_password),
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.6f),
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text(
-            "Confirm Password",
-            fontSize = 18.sp,
-            color = TextPrimary,
-            fontWeight = FontWeight.Medium
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        OutlinedTextField(
-            value = confirmPassword,
-            onValueChange = { confirmPassword = it },
-            placeholder = {
-                Text(
-                    "********************",
-                    color = TextSecondary.copy(alpha = 0.6f),
-                    fontSize = 16.sp
-                )
-            },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = TextFieldDefaults.outlinedTextFieldColors(
-                backgroundColor = InputFieldBackground,
-                textColor = Color.White,
-                cursorColor = Color.White,
-                focusedBorderColor = Color.Transparent,
-                unfocusedBorderColor = Color.Transparent
-            ),
-            leadingIcon = {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_password),
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.6f),
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-        )
-
-        Spacer(modifier = Modifier.weight(1f))
-
-        Button(
-            onClick = {
-                if (password.isNotEmpty() && password == confirmPassword) {
-                    viewModel.changePassword(password)
-                    onPasswordChange("")
-                    confirmPassword = ""
-                    Toast.makeText(context, "✅ Password changed", Toast.LENGTH_SHORT).show()
-                } else if (password != confirmPassword) {
-                    Toast.makeText(context, "❌ Passwords don't match", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, "⚠️ Enter a password", Toast.LENGTH_SHORT).show()
+private fun SourceSelectorCard(type: InputSourceType, isSelected: Boolean, onClick: () -> Unit) {
+    val (subtitle, icon) = when (type) {
+        InputSourceType.MOXA_REST  -> "REST polling · Moxa ioLogik" to Icons.Filled.Router
+        InputSourceType.MODBUS_TCP -> "Modbus TCP · port 502"        to Icons.Filled.Cable
+        InputSourceType.INCEPTION  -> "Inner Range Inception REST"   to Icons.Filled.Security
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        color = if (isSelected) AccentOrange.copy(alpha = 0.12f) else InputFieldBackground,
+        shape = RoundedCornerShape(12.dp),
+        border = if (isSelected)
+            androidx.compose.foundation.BorderStroke(1.5.dp, AccentOrange)
+        else
+            androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.06f))
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Box(
+                    modifier = Modifier.size(40.dp).background(
+                        if (isSelected) AccentOrange.copy(alpha = 0.2f) else TabIconBackground, CircleShape
+                    ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(icon, contentDescription = null, tint = if (isSelected) AccentOrange else TextSecondary, modifier = Modifier.size(20.dp))
                 }
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
-            colors = ButtonDefaults.buttonColors(
-                backgroundColor = ActiveTabColor,
-                contentColor = Color.White
-            ),
+                Column {
+                    Text(type.displayName, fontSize = 15.sp, color = if (isSelected) AccentOrange else TextPrimary, fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal)
+                    Text(subtitle, fontSize = 11.sp, color = TextSecondary.copy(alpha = 0.7f))
+                }
+            }
+            if (isSelected) {
+                Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = AccentOrange, modifier = Modifier.size(22.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun MoxaRestConfig(viewModel: DeviceViewModel, modbusIp: String, context: Context) {
+    var ipInput by remember(modbusIp) { mutableStateOf(modbusIp) }
+    IpSectionHeader("Moxa ioLogik Settings", "Polls GET /api/slot/0/io/di every 3 s.")
+    IpTextField("Device IP Address", ipInput, { ipInput = it }, "192.168.0.250")
+    Spacer(modifier = Modifier.height(12.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+        Button(onClick = { Toast.makeText(context, "Testing Moxa connection…", Toast.LENGTH_SHORT).show() },
+            modifier = Modifier.weight(1f).height(48.dp),
+            colors = ButtonDefaults.buttonColors(backgroundColor = TabIconBackground, contentColor = Color.White),
+            shape = RoundedCornerShape(24.dp)
+        ) {
+            Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Test", fontSize = 14.sp)
+        }
+        Button(onClick = {
+            if (ipInput.trim().isNotEmpty()) { viewModel.setModbusIp(ipInput.trim()); Toast.makeText(context, "✅ IP saved", Toast.LENGTH_SHORT).show() }
+            else Toast.makeText(context, "⚠️ Enter a valid IP", Toast.LENGTH_SHORT).show()
+        }, modifier = Modifier.weight(1f).height(48.dp),
+            colors = ButtonDefaults.buttonColors(backgroundColor = ActiveTabColor, contentColor = Color.White),
+            shape = RoundedCornerShape(24.dp)
+        ) { Text("Save IP", fontSize = 14.sp, fontWeight = FontWeight.Medium) }
+    }
+}
+
+@Composable
+private fun ModbusTcpConfig(viewModel: DeviceViewModel, modbusIp: String, context: Context) {
+    var ipInput by remember(modbusIp) { mutableStateOf(modbusIp) }
+    IpSectionHeader("Modbus TCP Settings", "Reads 16 discrete inputs via Function Code 0x02. Port 502.")
+    IpTextField("Device IP Address", ipInput, { ipInput = it }, "192.168.0.250")
+    Spacer(modifier = Modifier.height(12.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+        Button(onClick = { Toast.makeText(context, "Testing Modbus connection…", Toast.LENGTH_SHORT).show() },
+            modifier = Modifier.weight(1f).height(48.dp),
+            colors = ButtonDefaults.buttonColors(backgroundColor = TabIconBackground, contentColor = Color.White),
+            shape = RoundedCornerShape(24.dp)
+        ) {
+            Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Test", fontSize = 14.sp)
+        }
+        Button(onClick = {
+            if (ipInput.trim().isNotEmpty()) { viewModel.setModbusIp(ipInput.trim()); Toast.makeText(context, "✅ IP saved", Toast.LENGTH_SHORT).show() }
+            else Toast.makeText(context, "⚠️ Enter a valid IP", Toast.LENGTH_SHORT).show()
+        }, modifier = Modifier.weight(1f).height(48.dp),
+            colors = ButtonDefaults.buttonColors(backgroundColor = ActiveTabColor, contentColor = Color.White),
+            shape = RoundedCornerShape(24.dp)
+        ) { Text("Save IP", fontSize = 14.sp, fontWeight = FontWeight.Medium) }
+    }
+}
+
+@Composable
+private fun InceptionConnectionConfig(viewModel: DeviceViewModel, context: Context) {
+    val config = viewModel.inceptionConfig
+    var showPassword by remember { mutableStateOf(false) }
+    IpSectionHeader("Inception Controller",
+        "Enter the IP/hostname of your Inception controller and the credentials of a dedicated API User.")
+    IpTextField("Host / IP Address", config.host.value, { viewModel.updateInceptionHost(it) }, "192.168.0.100")
+    Spacer(modifier = Modifier.height(10.dp))
+    IpTextField("API Username", config.username.value, { viewModel.updateInceptionUsername(it) }, "api_user")
+    Spacer(modifier = Modifier.height(10.dp))
+    OutlinedTextField(
+        value = config.password.value,
+        onValueChange = { viewModel.updateInceptionPassword(it) },
+        label = { Text("API Password", fontSize = 12.sp, color = TextSecondary) },
+        placeholder = { Text("••••••••", color = TextSecondary.copy(alpha = 0.5f)) },
+        singleLine = true,
+        visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = TextFieldDefaults.outlinedTextFieldColors(
+            backgroundColor = InputFieldBackground, textColor = Color.White,
+            cursorColor = Color.White, focusedBorderColor = AccentOrange, unfocusedBorderColor = Color.Transparent
+        ),
+        leadingIcon = { Icon(painter = painterResource(id = R.drawable.ic_password), contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp)) },
+        trailingIcon = {
+            IconButton(onClick = { showPassword = !showPassword }) {
+                Icon(if (showPassword) Icons.Filled.Visibility else Icons.Filled.VisibilityOff, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
+            }
+        }
+    )
+    Spacer(modifier = Modifier.height(12.dp))
+    val isConnected by viewModel.isConnected
+    val statusText by viewModel.connectionStatusText
+    Surface(color = if (isConnected) Color(0xFF0D2B1A) else Color(0xFF2B0D0D), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(modifier = Modifier.size(10.dp).background(if (isConnected) Color(0xFF4CAF50) else Color(0xFFE53935), CircleShape))
+            Text(if (isConnected) "Connected · $statusText" else "Disconnected · $statusText", fontSize = 13.sp, color = if (isConnected) Color(0xFF81C784) else Color(0xFFEF9A9A))
+        }
+    }
+}
+
+@Composable
+private fun InceptionInputMappingConfig(viewModel: DeviceViewModel, scope: kotlinx.coroutines.CoroutineScope) {
+    var availableInputs by remember { mutableStateOf<List<InceptionInputInfo>?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+    val currentMappings by remember { derivedStateOf { viewModel.inceptionConfig.inputMappings.value } }
+    IpSectionHeader("Input → Device Slot Mapping", "Assign each Inception input to a VAD device slot (1–16). Leave empty to auto-assign.")
+    Button(
+        onClick = {
+            scope.launch {
+                isLoading = true; errorMsg = null
+                val result = viewModel.fetchInceptionInputs()
+                if (result != null) availableInputs = result
+                else errorMsg = "Could not connect. Check host and credentials above."
+                isLoading = false
+            }
+        },
+        modifier = Modifier.fillMaxWidth().height(48.dp),
+        colors = ButtonDefaults.buttonColors(backgroundColor = TabIconBackground, contentColor = Color.White),
+        shape = RoundedCornerShape(24.dp), enabled = !isLoading
+    ) {
+        if (isLoading) {
+            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = AccentOrange, strokeWidth = 2.dp)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Connecting to Inception…", fontSize = 14.sp)
+        } else {
+            Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Load Inputs from Controller", fontSize = 14.sp)
+        }
+    }
+    errorMsg?.let {
+        Spacer(modifier = Modifier.height(8.dp))
+        Surface(color = Color(0xFF3B1515), shape = RoundedCornerShape(8.dp)) {
+            Text(it, fontSize = 12.sp, color = Color(0xFFEF9A9A), modifier = Modifier.padding(10.dp))
+        }
+    }
+    if (availableInputs != null) {
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("${availableInputs!!.size} inputs found", fontSize = 13.sp, color = TextSecondary)
+            TextButton(onClick = { viewModel.clearInceptionInputMappings() }, colors = ButtonDefaults.textButtonColors(contentColor = AccentOrange)) {
+                Text("Clear all (use auto)", fontSize = 12.sp)
+            }
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        availableInputs!!.forEach { inputInfo ->
+            InceptionMappingRow(inputInfo = inputInfo, currentSlot = currentMappings[inputInfo.id], onSlotChanged = { slot -> viewModel.updateInceptionInputMapping(inputInfo.id, slot) })
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+    }
+}
+
+@Composable
+private fun InceptionMappingRow(inputInfo: InceptionInputInfo, currentSlot: Int?, onSlotChanged: (Int?) -> Unit) {
+    var slotText by remember(currentSlot) { mutableStateOf(currentSlot?.toString() ?: "") }
+    Surface(color = InputFieldBackground, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(inputInfo.name, fontSize = 13.sp, color = TextPrimary, fontWeight = FontWeight.Medium)
+                Text("Reporting ID: ${inputInfo.reportingId}", fontSize = 10.sp, color = TextSecondary.copy(alpha = 0.6f))
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("→ Slot", fontSize = 12.sp, color = TextSecondary)
+                Spacer(modifier = Modifier.width(8.dp))
+                OutlinedTextField(
+                    value = slotText,
+                    onValueChange = { v ->
+                        slotText = v.filter { it.isDigit() }.take(2)
+                        val parsed = slotText.toIntOrNull()
+                        onSlotChanged(if (parsed != null && parsed in 1..16) parsed else null)
+                    },
+                    modifier = Modifier.width(64.dp), singleLine = true,
+                    placeholder = { Text("Auto", fontSize = 11.sp, color = TextSecondary.copy(alpha = 0.5f)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    colors = TextFieldDefaults.outlinedTextFieldColors(backgroundColor = TabIconBackground, textColor = Color.White, cursorColor = AccentOrange, focusedBorderColor = AccentOrange, unfocusedBorderColor = Color.Transparent),
+                    shape = RoundedCornerShape(8.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun IpSectionHeader(title: String, hint: String) {
+    Text(title, fontSize = 17.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
+    Spacer(modifier = Modifier.height(4.dp))
+    Text(hint, fontSize = 12.sp, color = TextSecondary.copy(alpha = 0.75f), lineHeight = 17.sp)
+    Spacer(modifier = Modifier.height(12.dp))
+}
+
+@Composable
+private fun IpTextField(label: String, value: String, onValueChange: (String) -> Unit, placeholder: String) {
+    OutlinedTextField(
+        value = value, onValueChange = onValueChange,
+        label = { Text(label, fontSize = 12.sp, color = TextSecondary) },
+        placeholder = { Text(placeholder, color = TextSecondary.copy(alpha = 0.5f), fontSize = 14.sp) },
+        singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+        colors = TextFieldDefaults.outlinedTextFieldColors(
+            backgroundColor = InputFieldBackground, textColor = Color.White,
+            cursorColor = Color.White, focusedBorderColor = AccentOrange, unfocusedBorderColor = Color.Transparent
+        ),
+        leadingIcon = { Icon(painter = painterResource(id = R.drawable.ic_device), contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp)) }
+    )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Floorplan tab
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+fun FloorplanContent(viewModel: DeviceViewModel, launcher: ActivityResultLauncher<Array<String>>, floorplanUri: Uri?) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Text("Floorplan Images", fontSize = 24.sp, color = TextPrimary, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(20.dp))
+        Button(onClick = { launcher.launch(arrayOf("image/*")) }, modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(backgroundColor = ActiveTabColor, contentColor = Color.White),
+            shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(horizontal = 24.dp, vertical = 14.dp)
+        ) {
+            Text("Select Floorplan Image", fontSize = 16.sp, fontWeight = FontWeight.Medium)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("⌄", fontSize = 20.sp)
+        }
+        Spacer(modifier = Modifier.height(24.dp))
+        floorplanUri?.let { uri ->
+            AsyncImage(model = uri, contentDescription = "Selected Floorplan",
+                modifier = Modifier.fillMaxWidth().height(400.dp).clip(RoundedCornerShape(16.dp)).background(Color.White))
+        }
+        Spacer(modifier = Modifier.weight(1f))
+        if (floorplanUri != null) {
+            Button(onClick = { viewModel.setFloorplanUri(Uri.EMPTY) },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                colors = ButtonDefaults.buttonColors(backgroundColor = ActiveTabColor, contentColor = Color.White),
+                shape = RoundedCornerShape(28.dp)
+            ) {
+                Text("Remove Floorplan", fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("→", fontSize = 18.sp)
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Password tab
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+fun PasswordContent(viewModel: DeviceViewModel, password: String, context: Context, onPasswordChange: (String) -> Unit) {
+    var confirmPassword by remember { mutableStateOf("") }
+    Column(modifier = Modifier.fillMaxSize()) {
+        Text("Change Password", fontSize = 24.sp, color = TextPrimary, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(24.dp))
+        Text("New Password", fontSize = 18.sp, color = TextPrimary, fontWeight = FontWeight.Medium)
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(value = password, onValueChange = onPasswordChange,
+            placeholder = { Text("********************", color = TextSecondary.copy(alpha = 0.6f), fontSize = 16.sp) },
+            singleLine = true, visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+            colors = TextFieldDefaults.outlinedTextFieldColors(backgroundColor = InputFieldBackground, textColor = Color.White, cursorColor = Color.White, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
+            leadingIcon = { Icon(painter = painterResource(id = R.drawable.ic_password), contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp)) }
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+        Text("Confirm Password", fontSize = 18.sp, color = TextPrimary, fontWeight = FontWeight.Medium)
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(value = confirmPassword, onValueChange = { confirmPassword = it },
+            placeholder = { Text("********************", color = TextSecondary.copy(alpha = 0.6f), fontSize = 16.sp) },
+            singleLine = true, visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+            colors = TextFieldDefaults.outlinedTextFieldColors(backgroundColor = InputFieldBackground, textColor = Color.White, cursorColor = Color.White, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
+            leadingIcon = { Icon(painter = painterResource(id = R.drawable.ic_password), contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp)) }
+        )
+        Spacer(modifier = Modifier.weight(1f))
+        Button(onClick = {
+            if (password.isNotEmpty() && password == confirmPassword) {
+                viewModel.changePassword(password); onPasswordChange(""); confirmPassword = ""
+                Toast.makeText(context, "✅ Password changed", Toast.LENGTH_SHORT).show()
+            } else if (password != confirmPassword) Toast.makeText(context, "❌ Passwords don't match", Toast.LENGTH_SHORT).show()
+            else Toast.makeText(context, "⚠️ Enter a password", Toast.LENGTH_SHORT).show()
+        }, modifier = Modifier.fillMaxWidth().height(56.dp),
+            colors = ButtonDefaults.buttonColors(backgroundColor = ActiveTabColor, contentColor = Color.White),
             shape = RoundedCornerShape(28.dp)
         ) {
             Text("Save", fontSize = 16.sp, fontWeight = FontWeight.Medium)
@@ -960,164 +946,53 @@ fun PasswordContent(
     }
 }
 
-@Composable
-fun LicenseContent(
-    viewModel: DeviceViewModel,
-    context: Context,
-    licenseKey: String,
-    onLicenseKeyChange: (String) -> Unit,
-    deviceId: String,
-    licenseType: String
-) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        Text(
-            "Device ID",
-            fontSize = 18.sp,
-            color = TextPrimary,
-            fontWeight = FontWeight.Medium
-        )
-        Spacer(modifier = Modifier.height(8.dp))
+// ─────────────────────────────────────────────────────────────────────────────
+// License tab
+// ─────────────────────────────────────────────────────────────────────────────
 
+@Composable
+fun LicenseContent(viewModel: DeviceViewModel, context: Context, licenseKey: String, onLicenseKeyChange: (String) -> Unit, deviceId: String, licenseType: String) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Text("Device ID", fontSize = 18.sp, color = TextPrimary, fontWeight = FontWeight.Medium)
+        Spacer(modifier = Modifier.height(8.dp))
         SelectionContainer {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(InputFieldBackground, RoundedCornerShape(12.dp))
-                    .padding(16.dp)
-            ) {
+            Box(modifier = Modifier.fillMaxWidth().background(InputFieldBackground, RoundedCornerShape(12.dp)).padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_user),
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.6f),
-                        modifier = Modifier.size(20.dp)
-                    )
+                    Icon(painter = painterResource(id = R.drawable.ic_user), contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(deviceId, color = TextPrimary, fontSize = 16.sp)
                 }
             }
         }
-
         Spacer(modifier = Modifier.height(24.dp))
-
-        Text(
-            "Stored Licence Key",
-            fontSize = 18.sp,
-            color = TextPrimary,
-            fontWeight = FontWeight.Medium
-        )
+        Text("Stored Licence Key", fontSize = 18.sp, color = TextPrimary, fontWeight = FontWeight.Medium)
         Spacer(modifier = Modifier.height(8.dp))
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(InputFieldBackground, RoundedCornerShape(12.dp))
-                .padding(16.dp)
-        ) {
+        Box(modifier = Modifier.fillMaxWidth().background(InputFieldBackground, RoundedCornerShape(12.dp)).padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_key),
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.6f),
-                    modifier = Modifier.size(20.dp)
-                )
+                Icon(painter = painterResource(id = R.drawable.ic_key), contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp))
                 Spacer(modifier = Modifier.width(12.dp))
-                Text(
-                    LicenseManager.getLicenseType(context).takeIf { it.isNotEmpty() }
-                        ?: "No license stored",
-                    color = TextPrimary,
-                    fontSize = 16.sp
-                )
+                Text(LicenseManager.getLicenseType(context).takeIf { it.isNotEmpty() } ?: "No license stored", color = TextPrimary, fontSize = 16.sp)
             }
         }
-
         Spacer(modifier = Modifier.height(24.dp))
-
-        Text(
-            "Enter New Licence Key",
-            fontSize = 18.sp,
-            color = TextPrimary,
-            fontWeight = FontWeight.Medium
-        )
+        Text("Enter New Licence Key", fontSize = 18.sp, color = TextPrimary, fontWeight = FontWeight.Medium)
         Spacer(modifier = Modifier.height(8.dp))
-
-        OutlinedTextField(
-            value = licenseKey,
-            onValueChange = onLicenseKeyChange,
-            placeholder = {
-                Text(
-                    "********************",
-                    color = TextSecondary.copy(alpha = 0.6f),
-                    fontSize = 16.sp
-                )
-            },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = TextFieldDefaults.outlinedTextFieldColors(
-                backgroundColor = InputFieldBackground,
-                textColor = Color.White,
-                cursorColor = Color.White,
-                focusedBorderColor = Color.Transparent,
-                unfocusedBorderColor = Color.Transparent
-            ),
-            leadingIcon = {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_key),
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.6f),
-                    modifier = Modifier.size(20.dp)
-                )
-            }
+        OutlinedTextField(value = licenseKey, onValueChange = onLicenseKeyChange,
+            placeholder = { Text("********************", color = TextSecondary.copy(alpha = 0.6f), fontSize = 16.sp) },
+            singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+            colors = TextFieldDefaults.outlinedTextFieldColors(backgroundColor = InputFieldBackground, textColor = Color.White, cursorColor = Color.White, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
+            leadingIcon = { Icon(painter = painterResource(id = R.drawable.ic_key), contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp)) }
         )
-
         Spacer(modifier = Modifier.weight(1f))
-
-        /*Button(
-            onClick = {
-                if (LicenseManager.validateLicense(context, licenseKey)) {
-                    LicenseManager.saveLicense(context, licenseKey)
-                    viewModel.refreshLicenseType(context)
-                    Toast.makeText(context, "✅ License activated", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, "❌ Invalid license", Toast.LENGTH_SHORT).show()
-                }
-            },*/
-        Button(
-            onClick = {
-                val trimmedKey = licenseKey.trim()
-
-                if (trimmedKey.isEmpty()) {
-                    Toast.makeText(context, "⚠️ Please enter a license key", Toast.LENGTH_SHORT).show()
-                    return@Button
-                }
-
-                Log.d("Settings", "🔑 Activating license: $trimmedKey")
-
-                if (LicenseManager.validateLicense(context, trimmedKey)) {
-                    LicenseManager.saveLicense(context, trimmedKey)
-                    Log.d("Settings", "✅ License saved, forcing refresh...")
-
-                    // Use the new force refresh function
-                    viewModel.forceRefreshLicense(context) {
-                        val currentType = LicenseManager.getLicenseType(context)
-                        Toast.makeText(
-                            context,
-                            "✅ License activated: $currentType",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-                } else {
-                    Toast.makeText(context, "❌ Invalid license key", Toast.LENGTH_LONG).show()
-                }
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
-            colors = ButtonDefaults.buttonColors(
-                backgroundColor = ActiveTabColor,
-                contentColor = Color.White
-            ),
+        Button(onClick = {
+            val trimmedKey = licenseKey.trim()
+            if (trimmedKey.isEmpty()) { Toast.makeText(context, "⚠️ Please enter a license key", Toast.LENGTH_SHORT).show(); return@Button }
+            if (LicenseManager.validateLicense(context, trimmedKey)) {
+                LicenseManager.saveLicense(context, trimmedKey)
+                viewModel.forceRefreshLicense(context) { Toast.makeText(context, "✅ License activated: ${LicenseManager.getLicenseType(context)}", Toast.LENGTH_LONG).show() }
+            } else Toast.makeText(context, "❌ Invalid license key", Toast.LENGTH_LONG).show()
+        }, modifier = Modifier.fillMaxWidth().height(56.dp),
+            colors = ButtonDefaults.buttonColors(backgroundColor = ActiveTabColor, contentColor = Color.White),
             shape = RoundedCornerShape(28.dp)
         ) {
             Text("Activate", fontSize = 16.sp, fontWeight = FontWeight.Medium)
@@ -1127,415 +1002,136 @@ fun LicenseContent(
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// About tab
+// ─────────────────────────────────────────────────────────────────────────────
+
 @Composable
-fun AboutContent(
-    appVersion: String,
-    companyName: String,
-    websiteUrl: String
-) {
+fun AboutContent(appVersion: String, companyName: String, websiteUrl: String) {
     Column(modifier = Modifier.fillMaxSize()) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(InputFieldBackground, RoundedCornerShape(16.dp))
-                .padding(32.dp)
-        ) {
+        Box(modifier = Modifier.fillMaxWidth().background(InputFieldBackground, RoundedCornerShape(16.dp)).padding(32.dp)) {
             Column {
-                Text(
-                    "About This App",
-                    fontSize = 28.sp,
-                    color = TextPrimary,
-                    fontWeight = FontWeight.Bold
-                )
-
+                Text("About This App", fontSize = 28.sp, color = TextPrimary, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(24.dp))
-
-                Text(
-                    "App Version: $appVersion",
-                    fontSize = 18.sp,
-                    color = TextPrimary,
-                    fontWeight = FontWeight.Normal
-                )
-
+                Text("App Version: $appVersion", fontSize = 18.sp, color = TextPrimary)
                 Spacer(modifier = Modifier.height(16.dp))
-
-                Text(
-                    "Company: $companyName",
-                    fontSize = 18.sp,
-                    color = TextPrimary,
-                    fontWeight = FontWeight.Normal
-                )
-
+                Text("Company: $companyName", fontSize = 18.sp, color = TextPrimary)
                 Spacer(modifier = Modifier.height(16.dp))
-
-                Text(
-                    "Website: $websiteUrl",
-                    fontSize = 18.sp,
-                    color = TextPrimary,
-                    fontWeight = FontWeight.Normal
-                )
+                Text("Website: $websiteUrl", fontSize = 18.sp, color = TextPrimary)
             }
         }
-
         Spacer(modifier = Modifier.weight(1f))
-        Spacer(modifier = Modifier.height(16.dp))
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SMS tab
+// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 fun SmsSettings(viewModel: DeviceViewModel) {
     val context = LocalContext.current
-
     Column(modifier = Modifier.fillMaxSize()) {
-        Text(
-            "SMS Settings",
-            fontSize = 24.sp,
-            color = TextPrimary,
-            fontWeight = FontWeight.Bold
-        )
+        Text("SMS Settings", fontSize = 24.sp, color = TextPrimary, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(20.dp))
-
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
+        LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             items(5) { index ->
                 val entry = viewModel.smsConfig.smsNumbers[index]
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            "Name",
-                            color = TextPrimary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                        Text("Name", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                         Spacer(modifier = Modifier.height(6.dp))
-                        OutlinedTextField(
-                            value = entry.label.value,
-                            onValueChange = { viewModel.updateSmsNumberLabel(index, it) },
-                            placeholder = {
-                                Text(
-                                    "Enter your name",
-                                    color = TextSecondary.copy(alpha = 0.6f),
-                                    fontSize = 14.sp
-                                )
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = TextFieldDefaults.outlinedTextFieldColors(
-                                backgroundColor = InputFieldBackground,
-                                textColor = Color.White,
-                                cursorColor = Color.White,
-                                focusedBorderColor = Color.Transparent,
-                                unfocusedBorderColor = Color.Transparent
-                            ),
-                            leadingIcon = {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_user),
-                                    contentDescription = null,
-                                    tint = Color.White.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        )
+                        OutlinedTextField(value = entry.label.value, onValueChange = { viewModel.updateSmsNumberLabel(index, it) },
+                            placeholder = { Text("Enter your name", color = TextSecondary.copy(alpha = 0.6f), fontSize = 14.sp) },
+                            modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+                            colors = TextFieldDefaults.outlinedTextFieldColors(backgroundColor = InputFieldBackground, textColor = Color.White, cursorColor = Color.White, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
+                            leadingIcon = { Icon(painter = painterResource(id = R.drawable.ic_user), contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp)) })
                     }
-
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            "Phone Number",
-                            color = TextPrimary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                        Text("Phone Number", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                         Spacer(modifier = Modifier.height(6.dp))
-                        OutlinedTextField(
-                            value = entry.number.value,
-                            onValueChange = { viewModel.updateSmsNumber(index, it) },
-                            placeholder = {
-                                Text(
-                                    "Enter phone number",
-                                    color = TextSecondary.copy(alpha = 0.6f),
-                                    fontSize = 14.sp
-                                )
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = TextFieldDefaults.outlinedTextFieldColors(
-                                backgroundColor = InputFieldBackground,
-                                textColor = Color.White,
-                                cursorColor = Color.White,
-                                focusedBorderColor = Color.Transparent,
-                                unfocusedBorderColor = Color.Transparent
-                            ),
-                            leadingIcon = {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_call),
-                                    contentDescription = null,
-                                    tint = Color.White.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        )
+                        OutlinedTextField(value = entry.number.value, onValueChange = { viewModel.updateSmsNumber(index, it) },
+                            placeholder = { Text("Enter phone number", color = TextSecondary.copy(alpha = 0.6f), fontSize = 14.sp) },
+                            modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+                            colors = TextFieldDefaults.outlinedTextFieldColors(backgroundColor = InputFieldBackground, textColor = Color.White, cursorColor = Color.White, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
+                            leadingIcon = { Icon(painter = painterResource(id = R.drawable.ic_call), contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp)) })
                     }
                 }
             }
-
             item {
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    "Gateway Settings",
-                    color = TextPrimary,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Text("Gateway Settings", color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
             }
-
             item {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        "SMS Gateway URL",
-                        color = TextPrimary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Text("SMS Gateway URL", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     Spacer(modifier = Modifier.height(6.dp))
-                    OutlinedTextField(
-                        value = viewModel.smsConfig.gatewayUrl.value,
-                        onValueChange = viewModel::updateSmsGatewayUrl,
-                        placeholder = {
-                            Text(
-                                "https://www.demo.com",
-                                color = TextSecondary.copy(alpha = 0.6f),
-                                fontSize = 14.sp
-                            )
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = TextFieldDefaults.outlinedTextFieldColors(
-                            backgroundColor = InputFieldBackground,
-                            textColor = Color.White,
-                            cursorColor = Color.White,
-                            focusedBorderColor = Color.Transparent,
-                            unfocusedBorderColor = Color.Transparent
-                        ),
-                        leadingIcon = {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_link),
-                                contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.6f),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    )
+                    OutlinedTextField(value = viewModel.smsConfig.gatewayUrl.value, onValueChange = viewModel::updateSmsGatewayUrl,
+                        placeholder = { Text("https://www.demo.com", color = TextSecondary.copy(alpha = 0.6f), fontSize = 14.sp) },
+                        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+                        colors = TextFieldDefaults.outlinedTextFieldColors(backgroundColor = InputFieldBackground, textColor = Color.White, cursorColor = Color.White, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
+                        leadingIcon = { Icon(painter = painterResource(id = R.drawable.ic_link), contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp)) })
                 }
             }
-
             item {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        "Username",
-                        color = TextPrimary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Text("Username", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     Spacer(modifier = Modifier.height(6.dp))
-                    OutlinedTextField(
-                        value = viewModel.smsConfig.username.value,
-                        onValueChange = viewModel::updateSmsUsername,
-                        placeholder = {
-                            Text(
-                                "98RRx5",
-                                color = TextSecondary.copy(alpha = 0.6f),
-                                fontSize = 14.sp
-                            )
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = TextFieldDefaults.outlinedTextFieldColors(
-                            backgroundColor = InputFieldBackground,
-                            textColor = Color.White,
-                            cursorColor = Color.White,
-                            focusedBorderColor = Color.Transparent,
-                            unfocusedBorderColor = Color.Transparent
-                        ),
-                        leadingIcon = {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_user),
-                                contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.6f),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    )
+                    OutlinedTextField(value = viewModel.smsConfig.username.value, onValueChange = viewModel::updateSmsUsername,
+                        placeholder = { Text("98RRx5", color = TextSecondary.copy(alpha = 0.6f), fontSize = 14.sp) },
+                        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+                        colors = TextFieldDefaults.outlinedTextFieldColors(backgroundColor = InputFieldBackground, textColor = Color.White, cursorColor = Color.White, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
+                        leadingIcon = { Icon(painter = painterResource(id = R.drawable.ic_user), contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp)) })
                 }
             }
-
             item {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        "Password",
-                        color = TextPrimary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Text("Password", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     Spacer(modifier = Modifier.height(6.dp))
-                    OutlinedTextField(
-                        value = viewModel.smsConfig.password.value,
-                        onValueChange = viewModel::updateSmsPassword,
-                        placeholder = {
-                            Text(
-                                "******************",
-                                color = TextSecondary.copy(alpha = 0.6f),
-                                fontSize = 14.sp
-                            )
-                        },
+                    OutlinedTextField(value = viewModel.smsConfig.password.value, onValueChange = viewModel::updateSmsPassword,
+                        placeholder = { Text("******************", color = TextSecondary.copy(alpha = 0.6f), fontSize = 14.sp) },
                         visualTransformation = PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = TextFieldDefaults.outlinedTextFieldColors(
-                            backgroundColor = InputFieldBackground,
-                            textColor = Color.White,
-                            cursorColor = Color.White,
-                            focusedBorderColor = Color.Transparent,
-                            unfocusedBorderColor = Color.Transparent
-                        ),
-                        leadingIcon = {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_password),
-                                contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.6f),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    )
+                        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+                        colors = TextFieldDefaults.outlinedTextFieldColors(backgroundColor = InputFieldBackground, textColor = Color.White, cursorColor = Color.White, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
+                        leadingIcon = { Icon(painter = painterResource(id = R.drawable.ic_password), contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp)) })
                 }
             }
-
             item {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        "API Key",
-                        color = TextPrimary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Text("API Key", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     Spacer(modifier = Modifier.height(6.dp))
-                    OutlinedTextField(
-                        value = viewModel.smsConfig.apiKey.value,
-                        onValueChange = viewModel::updateSmsApiKey,
-                        placeholder = {
-                            Text(
-                                "Enter API key",
-                                color = TextSecondary.copy(alpha = 0.6f),
-                                fontSize = 14.sp
-                            )
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = TextFieldDefaults.outlinedTextFieldColors(
-                            backgroundColor = InputFieldBackground,
-                            textColor = Color.White,
-                            cursorColor = Color.White,
-                            focusedBorderColor = Color.Transparent,
-                            unfocusedBorderColor = Color.Transparent
-                        ),
-                        leadingIcon = {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_key),
-                                contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.6f),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    )
+                    OutlinedTextField(value = viewModel.smsConfig.apiKey.value, onValueChange = viewModel::updateSmsApiKey,
+                        placeholder = { Text("Enter API key", color = TextSecondary.copy(alpha = 0.6f), fontSize = 14.sp) },
+                        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+                        colors = TextFieldDefaults.outlinedTextFieldColors(backgroundColor = InputFieldBackground, textColor = Color.White, cursorColor = Color.White, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
+                        leadingIcon = { Icon(painter = painterResource(id = R.drawable.ic_key), contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp)) })
                 }
             }
-
             item {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        "Sender ID",
-                        color = TextPrimary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Text("Sender ID", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     Spacer(modifier = Modifier.height(6.dp))
-                    OutlinedTextField(
-                        value = viewModel.smsConfig.senderId.value,
-                        onValueChange = viewModel::updateSmsSenderId,
-                        placeholder = {
-                            Text(
-                                "000000000",
-                                color = TextSecondary.copy(alpha = 0.6f),
-                                fontSize = 14.sp
-                            )
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = TextFieldDefaults.outlinedTextFieldColors(
-                            backgroundColor = InputFieldBackground,
-                            textColor = Color.White,
-                            cursorColor = Color.White,
-                            focusedBorderColor = Color.Transparent,
-                            unfocusedBorderColor = Color.Transparent
-                        ),
-                        leadingIcon = {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_user),
-                                contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.6f),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    )
+                    OutlinedTextField(value = viewModel.smsConfig.senderId.value, onValueChange = viewModel::updateSmsSenderId,
+                        placeholder = { Text("000000000", color = TextSecondary.copy(alpha = 0.6f), fontSize = 14.sp) },
+                        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+                        colors = TextFieldDefaults.outlinedTextFieldColors(backgroundColor = InputFieldBackground, textColor = Color.White, cursorColor = Color.White, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
+                        leadingIcon = { Icon(painter = painterResource(id = R.drawable.ic_user), contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp)) })
                 }
             }
-
             item { Spacer(modifier = Modifier.height(16.dp)) }
         }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Button(
-                onClick = {
-                    viewModel.saveSmsSettings(context)
-                    Toast.makeText(context, "✅ SMS settings saved", Toast.LENGTH_SHORT).show()
-                },
-                modifier = Modifier
-                    .weight(1f)
-                    .height(56.dp),
-                colors = ButtonDefaults.buttonColors(
-                    backgroundColor = ActiveTabColor,
-                    contentColor = Color.White
-                ),
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Button(onClick = { viewModel.saveSmsSettings(context); Toast.makeText(context, "✅ SMS settings saved", Toast.LENGTH_SHORT).show() },
+                modifier = Modifier.weight(1f).height(56.dp),
+                colors = ButtonDefaults.buttonColors(backgroundColor = ActiveTabColor, contentColor = Color.White),
                 shape = RoundedCornerShape(28.dp)
-            ) {
-                Text("Save SMS", fontSize = 15.sp, fontWeight = FontWeight.Medium)
-            }
-
-            Button(
-                onClick = { viewModel.sendTestSms(context) },
-                modifier = Modifier
-                    .weight(1f)
-                    .height(56.dp),
-                colors = ButtonDefaults.buttonColors(
-                    backgroundColor = ActiveTabColor,
-                    contentColor = Color.White
-                ),
+            ) { Text("Save SMS", fontSize = 15.sp, fontWeight = FontWeight.Medium) }
+            Button(onClick = { viewModel.sendTestSms(context) },
+                modifier = Modifier.weight(1f).height(56.dp),
+                colors = ButtonDefaults.buttonColors(backgroundColor = ActiveTabColor, contentColor = Color.White),
                 shape = RoundedCornerShape(28.dp)
-            ) {
-                Text("Test SMS", fontSize = 15.sp, fontWeight = FontWeight.Medium)
-            }
+            ) { Text("Test SMS", fontSize = 15.sp, fontWeight = FontWeight.Medium) }
         }
     }
 }

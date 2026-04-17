@@ -14,7 +14,8 @@ data class SerializableDeviceState(
     val isLicensed: Boolean,
     val streamUrl: String,
     val cameraEnabled: Boolean,
-    val smsEnabled: Boolean
+    val smsEnabled: Boolean,
+    val labelColor: String = "white"   // default keeps existing saved data compatible
 )
 
 fun DeviceState.toSerializable(): SerializableDeviceState {
@@ -30,7 +31,8 @@ fun DeviceState.toSerializable(): SerializableDeviceState {
         isLicensed = isLicensed.value,
         streamUrl = streamUrl.value,
         cameraEnabled = cameraEnabled.value,
-        smsEnabled = smsEnabled.value
+        smsEnabled = smsEnabled.value,
+        labelColor = labelColor.value
     )
 }
 
@@ -47,6 +49,7 @@ fun SerializableDeviceState.toDeviceState(): DeviceState {
         isLicensed = mutableStateOf(isLicensed),
         streamUrl = mutableStateOf(streamUrl),
         cameraEnabled = mutableStateOf(cameraEnabled),
-        smsEnabled = mutableStateOf(smsEnabled)
+        smsEnabled = mutableStateOf(smsEnabled),
+        labelColor = mutableStateOf(labelColor)
     )
 }

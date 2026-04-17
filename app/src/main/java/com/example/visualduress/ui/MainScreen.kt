@@ -215,7 +215,7 @@ fun MainScreen(viewModel: DeviceViewModel) {
                     )
                     Text(
                         text = device.name.value,
-                        color = Color.White,
+                        color = if (device.labelColor.value == "black") Color.Black else Color.White,
                         fontSize = (device.size.value / 5).coerceAtLeast(10f).sp
                     )
 
@@ -397,7 +397,7 @@ fun MainScreen(viewModel: DeviceViewModel) {
     val eventLog = viewModel.eventLog
 
     // Define color scheme from Figma
-   // Teal for online status
+    // Teal for online status
 
     Box(
         modifier = Modifier
@@ -565,7 +565,7 @@ fun MainScreen(viewModel: DeviceViewModel) {
                     top = if (showFullscreen) 0.dp else 72.dp,
                     bottom = if (showFullscreen) 0.dp else 100.dp
                 )
-                //.padding(top = 72.dp, bottom = 100.dp) // Space for top bar and bottom button
+            //.padding(top = 72.dp, bottom = 100.dp) // Space for top bar and bottom button
         ) {
             floorplanUri?.let {
                 Box(
@@ -655,7 +655,7 @@ fun MainScreen(viewModel: DeviceViewModel) {
                         )
                         Text(
                             text = device.name.value,
-                            color = Color.White,
+                            color = if (device.labelColor.value == "black") Color.Black else Color.White,
                             fontSize = (device.size.value / 5).coerceAtLeast(10f).sp
                         )
 
@@ -734,7 +734,7 @@ fun MainScreen(viewModel: DeviceViewModel) {
                         )
                         Text(
                             text = device.name.value,
-                            color = Color.White,
+                            color = if (device.labelColor.value == "black") Color.Black else Color.White,
                             fontSize = (device.size.value / 5).coerceAtLeast(10f).sp
                         )
 
@@ -799,12 +799,6 @@ fun MainScreen(viewModel: DeviceViewModel) {
                             text = "Reset",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "→",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
