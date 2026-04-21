@@ -10,49 +10,22 @@ import java.io.IOException
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
+import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 
 /**
  * Input source that integrates with the Inner Range Inception security system
  * via its REST API (protocol v8+).
  *
- * ## How it works
+ * Supports both local IP and SkyTunnel URLs:
+ *   Local:     192.168.1.100  or  http://192.168.1.100
+ *   SkyTunnel: https://skytunnel.com.au/Inception/IN81819021
  *
- * 1. On connect(): authenticate to get a session ID
- * 2. On first poll(): discover available inputs from the Inception controller,
- *    build a GUID -> slot mapping using the user-configured inputMappings
- * 3. Each poll() uses HTTP long polling (api/v1/monitor-updates) to wait
- *    for input state changes. Falls back to direct input state query if
- *    long polling isn't returning quickly enough.
- *
- * ## Input State Mapping
- *
- * Inception uses bit flags in the "PublicState" field to represent input states.
- * The relevant bits for physical digital inputs are:
- *
- *   Bit 0  (value 1)   = Input active / triggered
- *   Bit 1  (value 2)   = Input tamper
- *   Bit 3  (value 8)   = Input in alarm
- *   Bit 11 (value 2048)= Input unsealed (same as active for most uses)
- *
- * For VAD purposes: any of these bits set = input is active (value 1).
- * No bits set = input is normal (value 0).
- *
- * ## Device Mapping
- *
- * Inception inputs are identified by GUIDs.
- * The user maps each GUID to a VAD device slot ID (1..16) in Settings.
- * If auto-mapping is enabled (no manual mappings), inputs are auto-assigned
- * in the order they are returned by the API (1, 2, 3, ...).
- *
- * ## Session Management
- *
- * Sessions expire after 10 minutes of no activity.
- * The source refreshes the session automatically if a 401/403 is received,
- * or if the session is older than 8 minutes.
- *
- * @param config Live InceptionConfig (Compose-observable). The source reads
- *               .value fields each poll so settings changes take effect
- *               without restarting.
+ * SkyTunnel 307 redirects are followed automatically.
  */
 class InceptionInputSource(
     private val config: InceptionConfig
@@ -62,13 +35,108 @@ class InceptionInputSource(
 
     private var sessionId: String? = null
     private var sessionCreatedAt: Long = 0L
-
-    // Inception input GUID -> VAD device slot (1-based)
     private var resolvedMappings: Map<String, Int> = emptyMap()
     private var inputsDiscovered = false
-
-    // Long poll state — tracks updateTime tokens per sub-request
     private var inputStateUpdateTime: String = "0"
+
+    // Maps slot ID -> Inception input name for ViewModel to use
+    var slotNames: Map<Int, String> = emptyMap()
+        private set
+
+    // -------------------------------------------------------------------------
+    // URL helper — supports local IP or full https:// SkyTunnel URL
+    // -------------------------------------------------------------------------
+
+    private fun baseUrl(): String {
+        val host = config.host.value.trim().trimEnd('/')
+        return when {
+            host.startsWith("http://")  -> host
+            host.startsWith("https://") -> host
+            else -> "http://$host"
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // SSL — trust all certificates for SkyTunnel HTTPS
+    // -------------------------------------------------------------------------
+
+    /**
+     * Trust manager that accepts all certificates.
+     * Required for SkyTunnel which uses a certificate chain that Android
+     * doesn't trust by default.
+     * This is acceptable here because:
+     * 1. We are connecting to a known fixed domain (skytunnel.com.au)
+     * 2. The Inception API uses username/password authentication
+     * 3. This is a commercial kiosk app on a controlled network
+     */
+    private val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
+        override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
+        override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
+        override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+    })
+
+    private val trustAllSslContext: SSLContext by lazy {
+        SSLContext.getInstance("TLS").apply {
+            init(null, trustAllCerts, SecureRandom())
+        }
+    }
+
+    private val trustAllHostnameVerifier = javax.net.ssl.HostnameVerifier { _, _ -> true }
+
+    private fun applyTrustAll(conn: HttpURLConnection) {
+        if (conn is HttpsURLConnection) {
+            conn.sslSocketFactory = trustAllSslContext.socketFactory
+            conn.hostnameVerifier = trustAllHostnameVerifier
+        }
+    }
+
+    /**
+     * Resolve SkyTunnel redirects using a HEAD request with trust-all SSL.
+     */
+    private fun resolveUrl(urlString: String): String {
+        return try {
+            var currentUrl = urlString
+            var redirectCount = 0
+            while (redirectCount < 5) {
+                val conn = URL(currentUrl).openConnection() as HttpURLConnection
+                conn.apply {
+                    requestMethod = "HEAD"
+                    instanceFollowRedirects = false
+                    connectTimeout = 8000
+                    readTimeout = 5000
+                }
+                applyTrustAll(conn)
+                val code = conn.responseCode
+                if (code == 301 || code == 302 || code == 307 || code == 308) {
+                    val location = conn.getHeaderField("Location") ?: break
+                    conn.disconnect()
+                    currentUrl = location
+                    redirectCount++
+                    Log.d("Inception", "Resolved redirect -> $currentUrl")
+                } else {
+                    conn.disconnect()
+                    break
+                }
+            }
+            currentUrl
+        } catch (e: Exception) {
+            Log.w("Inception", "Redirect resolution failed, using original URL: ${e.message}")
+            urlString
+        }
+    }
+
+    private fun openConnection(urlString: String): HttpURLConnection {
+        val conn = URL(urlString).openConnection() as HttpURLConnection
+        applyTrustAll(conn)
+        conn.instanceFollowRedirects = true
+        return conn
+    }
+
+    fun resetDiscovery() {
+        inputsDiscovered = false
+        inputStateUpdateTime = "0"
+        Log.d("Inception", "Discovery reset — will re-sync on next poll")
+    }
 
     // -------------------------------------------------------------------------
     // Public interface
@@ -87,32 +155,22 @@ class InceptionInputSource(
         inputStateUpdateTime = "0"
     }
 
-    /**
-     * Single poll cycle.
-     *
-     * Returns map of VAD device slot ID -> input state (0 or 1).
-     * Only slots that have a mapping are included in the result.
-     *
-     * Throws IOException on unrecoverable errors (caller marks offline).
-     */
     override suspend fun poll(): Map<Int, Int> = withContext(Dispatchers.IO) {
         ensureValidSession()
 
-        // Discover and cache input list on first successful poll
         if (!inputsDiscovered) {
             discoverInputs()
         }
 
-        // Use long polling to get current input states
-        // timeSinceUpdate = "0" means "give me all current states immediately"
         val states = fetchInputStates()
 
-        // Map Inception GUIDs to VAD slot IDs using resolved mappings
+        // Return raw PublicState values so ViewModel can apply
+        // per-device alarm logic (alarmStateOnly toggle)
         val result = mutableMapOf<Int, Int>()
-        states.forEach { (guid, isActive) ->
+        states.forEach { (guid, publicState) ->
             val slotId = resolvedMappings[guid]
             if (slotId != null) {
-                result[slotId] = if (isActive) 1 else 0
+                result[slotId] = publicState
             }
         }
 
@@ -124,14 +182,8 @@ class InceptionInputSource(
     // Authentication
     // -------------------------------------------------------------------------
 
-    /**
-     * POST api/v1/authentication/login
-     * Stores the returned UserID as sessionId.
-     */
     private suspend fun authenticate() = withContext(Dispatchers.IO) {
-        val host = config.host.value.trim().trimEnd('/')
-        val url = URL("http://$host/api/v1/authentication/login")
-
+        val url = resolveUrl("${baseUrl()}/api/v1/authentication/login")
         Log.i("Inception", "Authenticating at $url")
 
         val payload = JSONObject().apply {
@@ -139,15 +191,15 @@ class InceptionInputSource(
             put("Password", config.password.value)
         }.toString()
 
-        val conn = url.openConnection() as HttpURLConnection
+        val conn = openConnection(url)
         try {
             conn.apply {
                 requestMethod = "POST"
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
                 setRequestProperty("Accept", "application/json")
-                connectTimeout = 5000
-                readTimeout = 5000
+                connectTimeout = 8000
+                readTimeout = 8000
             }
 
             conn.outputStream.use { os ->
@@ -169,7 +221,7 @@ class InceptionInputSource(
 
             sessionId = json.getString("UserID")
             sessionCreatedAt = System.currentTimeMillis()
-            inputsDiscovered = false  // re-discover inputs after new session
+            inputsDiscovered = false
             Log.i("Inception", "✅ Authenticated, session: $sessionId")
 
         } finally {
@@ -177,11 +229,6 @@ class InceptionInputSource(
         }
     }
 
-    /**
-     * Ensure session is valid. Re-authenticate if:
-     * - No session exists
-     * - Session is older than 8 minutes (Inception expires at 10 min)
-     */
     private suspend fun ensureValidSession() {
         val sessionAge = System.currentTimeMillis() - sessionCreatedAt
         val eightMinutes = 8 * 60 * 1000L
@@ -195,65 +242,47 @@ class InceptionInputSource(
     // Input discovery
     // -------------------------------------------------------------------------
 
-    /**
-     * GET api/v1/control/input
-     *
-     * Fetches the list of all inputs from Inception.
-     * Builds resolvedMappings either from user-configured inputMappings,
-     * or auto-assigns slots by order (1, 2, 3...) if no mappings are configured.
-     *
-     * Each input object looks like:
-     * { "ID": "07590f0f-...", "Name": "Reception Duress", "ReportingID": 1 }
-     */
     private suspend fun discoverInputs() = withContext(Dispatchers.IO) {
-        val host = config.host.value.trim().trimEnd('/')
-        val url = URL("http://$host/api/v1/control/input")
-
+        val url = "${baseUrl()}/api/v1/control/input"
         Log.i("Inception", "Discovering inputs from $url")
 
-        val conn = url.openConnection() as HttpURLConnection
+        val conn = openConnection(url)
         try {
             conn.apply {
                 requestMethod = "GET"
                 setRequestProperty("Cookie", "LoginSessId=${sessionId}")
                 setRequestProperty("Accept", "application/json")
-                connectTimeout = 5000
-                readTimeout = 5000
+                readTimeout = 8000
             }
 
             handleUnauthorized(conn)
 
             val body = conn.inputStream.bufferedReader().readText()
             val arr = JSONArray(body)
-
             val userMappings = config.inputMappings.value
 
             val newMappings = mutableMapOf<String, Int>()
+            val newSlotNames = mutableMapOf<Int, String>()
 
             for (i in 0 until arr.length()) {
                 val obj = arr.getJSONObject(i)
                 val guid = obj.getString("ID")
                 val name = obj.optString("Name", "Input ${i + 1}")
-                val reportingId = obj.optInt("ReportingID", i + 1)
 
-                val slotId = when {
-                    // User has explicitly mapped this GUID
-                    userMappings.containsKey(guid) -> userMappings[guid]!!
-                    // Auto-map: use ReportingID (1-based, matches VAD slot IDs)
-                    userMappings.isEmpty() -> reportingId
-                    // User has manual mappings but didn't include this one — skip
-                    else -> null
-                }
+                // Inception NEVER auto-maps — all inputs must be manually assigned
+                val slotId = userMappings[guid]
 
-                if (slotId != null && slotId in 1..16) {
+                if (slotId != null && slotId in 1..32) {
                     newMappings[guid] = slotId
-                    Log.d("Inception", "Mapped input '$name' ($guid) -> slot $slotId")
+                    newSlotNames[slotId] = name
+                    Log.d("Inception", "Mapped '$name' ($guid) -> slot $slotId")
                 }
             }
 
             resolvedMappings = newMappings
+            slotNames = newSlotNames
             inputsDiscovered = true
-            inputStateUpdateTime = "0"  // reset so we get all states fresh
+            inputStateUpdateTime = "0"
             Log.i("Inception", "✅ Discovered ${arr.length()} inputs, mapped ${newMappings.size}")
 
         } finally {
@@ -262,24 +291,11 @@ class InceptionInputSource(
     }
 
     // -------------------------------------------------------------------------
-    // Input state polling
+    // Input state polling (long poll)
     // -------------------------------------------------------------------------
 
-    /**
-     * Uses the Inception long-polling endpoint to get current input states.
-     *
-     * POST api/v1/monitor-updates
-     *
-     * On the first call (timeSinceUpdate = "0"), returns all current states immediately.
-     * On subsequent calls, blocks for up to 60s waiting for state changes.
-     *
-     * The read timeout is set to 65s to accommodate the server's 60s hold time.
-     *
-     * Returns map of Inception input GUID -> isActive (true/false).
-     */
-    private suspend fun fetchInputStates(): Map<String, Boolean> = withContext(Dispatchers.IO) {
-        val host = config.host.value.trim().trimEnd('/')
-        val url = URL("http://$host/api/v1/monitor-updates")
+    private suspend fun fetchInputStates(): Map<String, Int> = withContext(Dispatchers.IO) {
+        val url = "${baseUrl()}/api/v1/monitor-updates"
 
         val requestBody = JSONArray().apply {
             put(JSONObject().apply {
@@ -292,7 +308,7 @@ class InceptionInputSource(
             })
         }.toString()
 
-        val conn = url.openConnection() as HttpURLConnection
+        val conn = openConnection(url)
         try {
             conn.apply {
                 requestMethod = "POST"
@@ -300,7 +316,7 @@ class InceptionInputSource(
                 setRequestProperty("Cookie", "LoginSessId=${sessionId}")
                 setRequestProperty("Content-Type", "application/json")
                 setRequestProperty("Accept", "application/json")
-                connectTimeout = 5000
+                connectTimeout = 8000
                 // Must be > 60s — Inception holds the connection open for up to 60s
                 readTimeout = 70000
             }
@@ -314,8 +330,6 @@ class InceptionInputSource(
             val responseBody = conn.inputStream.bufferedReader().readText()
 
             if (responseBody.isBlank()) {
-                // Empty response = no state changes since last poll
-                // Return empty map — ViewModel will keep existing alarm states
                 Log.d("Inception", "Long poll returned empty (no changes)")
                 return@withContext emptyMap()
             }
@@ -323,7 +337,6 @@ class InceptionInputSource(
             val json = JSONObject(responseBody)
             val result = json.optJSONObject("Result") ?: return@withContext emptyMap()
 
-            // Update the timestamp token for the next request
             val newUpdateTime = result.optString("updateTime", inputStateUpdateTime)
             if (newUpdateTime.isNotBlank()) {
                 inputStateUpdateTime = newUpdateTime
@@ -331,21 +344,13 @@ class InceptionInputSource(
 
             val stateData = result.optJSONArray("stateData") ?: return@withContext emptyMap()
 
-            val states = mutableMapOf<String, Boolean>()
+            val states = mutableMapOf<String, Int>()
             for (i in 0 until stateData.length()) {
                 val item = stateData.getJSONObject(i)
                 val guid = item.getString("ID")
                 val publicState = item.optInt("PublicState", 0)
-
-                // Inception InputPublicState bit flags:
-                // Bit 0  (1)    = Input active/triggered
-                // Bit 1  (2)    = Input tamper
-                // Bit 3  (8)    = Input in alarm
-                // Bit 11 (2048) = Input unsealed
-                // Any of these = treat as active in VAD
-                val isActive = (publicState and (1 or 2 or 8 or 2048)) != 0
-
-                states[guid] = isActive
+                // Return raw PublicState — ViewModel applies per-device alarm logic
+                states[guid] = publicState
             }
 
             Log.d("Inception", "Long poll returned ${states.size} state updates")
@@ -360,10 +365,6 @@ class InceptionInputSource(
     // Helpers
     // -------------------------------------------------------------------------
 
-    /**
-     * Check for 401/403 responses and trigger re-authentication.
-     * Call BEFORE reading responseCode (which consumes the connection).
-     */
     private suspend fun handleUnauthorized(conn: HttpURLConnection) {
         val code = conn.responseCode
         if (code == HttpURLConnection.HTTP_UNAUTHORIZED || code == HttpURLConnection.HTTP_FORBIDDEN) {
@@ -384,27 +385,17 @@ class InceptionInputSource(
     // Utility — available inputs for Settings UI
     // -------------------------------------------------------------------------
 
-    /**
-     * Returns list of (GUID, Name, ReportingID) for all inputs on the
-     * Inception controller. Used by the Settings UI to let the user
-     * configure input-to-slot mappings.
-     *
-     * Requires an active session — call connect() first.
-     */
     suspend fun fetchAvailableInputs(): List<InceptionInputInfo> = withContext(Dispatchers.IO) {
         ensureValidSession()
 
-        val host = config.host.value.trim().trimEnd('/')
-        val url = URL("http://$host/api/v1/control/input")
-
-        val conn = url.openConnection() as HttpURLConnection
+        val url = "${baseUrl()}/api/v1/control/input"
+        val conn = openConnection(url)
         try {
             conn.apply {
                 requestMethod = "GET"
                 setRequestProperty("Cookie", "LoginSessId=${sessionId}")
                 setRequestProperty("Accept", "application/json")
-                connectTimeout = 5000
-                readTimeout = 5000
+                readTimeout = 8000
             }
 
             handleUnauthorized(conn)
@@ -432,9 +423,6 @@ class InceptionInputSource(
     }
 }
 
-/**
- * Lightweight data class for displaying Inception inputs in the Settings UI.
- */
 data class InceptionInputInfo(
     val id: String,
     val name: String,

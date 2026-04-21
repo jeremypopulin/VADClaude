@@ -64,7 +64,7 @@ fun SettingsDialog(
     val context = LocalContext.current
     val licenseType by viewModel.licenseType
     val isBasic = licenseType != "PREMIUM"
-    val initialTab = if (LicenseManager.isLicenseValid(context)) "devices" else "license"
+    val initialTab = if (LicenseManager.isLicenseValid(context)) "ip" else "license"
     val activeTabState = remember { mutableStateOf(initialTab) }
     val activeTab by activeTabState
     viewModel.setActiveTab(activeTab)
@@ -90,7 +90,6 @@ fun SettingsDialog(
         }
     }
 
-    // Use Dialog instead of AlertDialog to prevent internal scrolling
     Dialog(
         onDismissRequest = { viewModel.closeSettings() },
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -103,20 +102,13 @@ fun SettingsDialog(
             shape = RoundedCornerShape(16.dp)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-
-                // Header
                 ModernDialogHeader()
-
-                // Tabs
                 ModernTabNavigation(
                     activeTab = activeTab,
                     isBasic = isBasic,
                     onTabChange = { activeTabState.value = it }
                 )
-
                 Spacer(modifier = Modifier.height(8.dp))
-
-                // Content area - takes all remaining space between tabs and close button
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -124,9 +116,9 @@ fun SettingsDialog(
                         .padding(horizontal = 16.dp)
                 ) {
                     when (activeTab) {
+                        "ip"        -> IpContent(viewModel, modbusIp, context)
                         "devices"   -> DeviceSettingsContent(viewModel, isBasic)
                         "floorplan" -> FloorplanContent(viewModel, launcher, floorplanUri)
-                        "ip"        -> IpContent(viewModel, modbusIp, context)
                         "password"  -> PasswordContent(
                             viewModel, newPassword, context,
                             onPasswordChange = { newPassword = it }
@@ -140,24 +132,16 @@ fun SettingsDialog(
                         "about"     -> AboutContent(appVersion, companyName, websiteUrl)
                     }
                 }
-
-                // Close button always anchored at bottom
                 ModernCloseButton(onClick = { viewModel.closeSettings() })
             }
         }
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Header
-// ─────────────────────────────────────────────────────────────────────────────
-
 @Composable
 private fun ModernDialogHeader() {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
+        modifier = Modifier.fillMaxWidth().padding(16.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -171,10 +155,6 @@ private fun ModernDialogHeader() {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Tab navigation
-// ─────────────────────────────────────────────────────────────────────────────
-
 @Composable
 private fun ModernTabNavigation(
     activeTab: String,
@@ -182,14 +162,13 @@ private fun ModernTabNavigation(
     onTabChange: (String) -> Unit
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
         horizontalArrangement = Arrangement.SpaceEvenly
     ) {
+        // Comms first
+        ModernIconTabDrawable("ip",        activeTab, R.drawable.ic_ip,       "Comms",     { onTabChange("ip") })
         ModernIconTabDrawable("devices",   activeTab, R.drawable.ic_devices,  "Devices",   { onTabChange("devices") })
         ModernIconTabDrawable("floorplan", activeTab, R.drawable.ic_floorplan,"Floorplan", { onTabChange("floorplan") })
-        ModernIconTabDrawable("ip",        activeTab, R.drawable.ic_ip,       "Comms",     { onTabChange("ip") })
         ModernIconTabDrawable("password",  activeTab, R.drawable.ic_password, "Password",  { onTabChange("password") })
         if (!isBasic) {
             ModernIconTabDrawable("sms",   activeTab, R.drawable.ic_sms,      "SMS",       { onTabChange("sms") })
@@ -271,26 +250,16 @@ fun ModernIconTab(
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Close button
-// ─────────────────────────────────────────────────────────────────────────────
-
 @Composable
 private fun ModernCloseButton(onClick: () -> Unit) {
     Button(
         onClick = onClick,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp)
-            .height(52.dp),
-        colors = ButtonDefaults.buttonColors(
-            backgroundColor = Color.White,
-            contentColor = CloseButtonColor
-        ),
+        modifier = Modifier.fillMaxWidth().padding(16.dp).height(52.dp),
+        colors = ButtonDefaults.buttonColors(backgroundColor = Color.White, contentColor = CloseButtonColor),
         shape = RoundedCornerShape(26.dp),
         elevation = ButtonDefaults.elevation(defaultElevation = 0.dp, pressedElevation = 2.dp)
     ) {
-        Text("Close ×", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        Text("Close", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -300,14 +269,15 @@ private fun ModernCloseButton(onClick: () -> Unit) {
 
 @Composable
 fun DeviceSettingsContent(viewModel: DeviceViewModel, isBasic: Boolean) {
+    // Observe all device names — recomposes immediately when Inception syncs names
+    val deviceNames by remember { derivedStateOf { viewModel.deviceStates.map { it.name.value } } }
+
     Column(modifier = Modifier.fillMaxSize()) {
         Text("Device Settings", fontSize = 20.sp, color = TextPrimary, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(16.dp))
 
         LazyColumn(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
+            modifier = Modifier.fillMaxWidth().weight(1f),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             items(viewModel.deviceStates) { device ->
@@ -321,13 +291,10 @@ fun DeviceSettingsContent(viewModel: DeviceViewModel, isBasic: Boolean) {
                 ) {
                     Text(
                         "Device ${viewModel.deviceStates.indexOf(device) + 1}",
-                        color = TextSecondary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
+                        color = TextSecondary, fontSize = 14.sp, fontWeight = FontWeight.Medium
                     )
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // Device name
                     OutlinedTextField(
                         value = device.name.value,
                         onValueChange = { device.name.value = it; viewModel.saveDeviceStates() },
@@ -335,25 +302,17 @@ fun DeviceSettingsContent(viewModel: DeviceViewModel, isBasic: Boolean) {
                         singleLine = true,
                         shape = RoundedCornerShape(8.dp),
                         colors = TextFieldDefaults.outlinedTextFieldColors(
-                            backgroundColor = TabIconBackground,
-                            textColor = Color.White,
-                            cursorColor = Color.White,
-                            focusedBorderColor = AccentBlue,
-                            unfocusedBorderColor = Color.Transparent
+                            backgroundColor = TabIconBackground, textColor = Color.White,
+                            cursorColor = Color.White, focusedBorderColor = AccentBlue, unfocusedBorderColor = Color.Transparent
                         ),
                         leadingIcon = {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_device),
-                                contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.6f),
-                                modifier = Modifier.size(20.dp)
-                            )
+                            Icon(painter = painterResource(id = R.drawable.ic_device), contentDescription = null,
+                                tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp))
                         }
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Enabled toggle
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -364,17 +323,14 @@ fun DeviceSettingsContent(viewModel: DeviceViewModel, isBasic: Boolean) {
                             checked = device.isEnabled.value,
                             onCheckedChange = { device.isEnabled.value = it; viewModel.saveDeviceStates() },
                             colors = SwitchDefaults.colors(
-                                checkedThumbColor = DarkBlue,
-                                checkedTrackColor = Color.White,
-                                uncheckedThumbColor = Color.White,
-                                uncheckedTrackColor = Color.Black
+                                checkedThumbColor = DarkBlue, checkedTrackColor = Color.White,
+                                uncheckedThumbColor = Color.White, uncheckedTrackColor = Color.Black
                             )
                         )
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Label text colour picker
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -382,60 +338,31 @@ fun DeviceSettingsContent(viewModel: DeviceViewModel, isBasic: Boolean) {
                     ) {
                         Column {
                             Text("Label Text Colour", color = TextPrimary)
-                            Text(
-                                "Use black text on light floor plans",
-                                fontSize = 11.sp,
-                                color = TextSecondary.copy(alpha = 0.7f)
-                            )
+                            Text("Use black text on light floor plans", fontSize = 11.sp, color = TextSecondary.copy(alpha = 0.7f))
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            // White option
                             Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .background(
-                                        if (device.labelColor.value == "white") AccentOrange else TabIconBackground,
-                                        RoundedCornerShape(8.dp)
-                                    )
-                                    .clickable {
-                                        device.labelColor.value = "white"
-                                        viewModel.saveDeviceStates()
-                                    },
+                                modifier = Modifier.size(36.dp)
+                                    .background(if (device.labelColor.value == "white") AccentOrange else TabIconBackground, RoundedCornerShape(8.dp))
+                                    .clickable { device.labelColor.value = "white"; viewModel.saveDeviceStates() },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(20.dp)
-                                        .background(Color.White, RoundedCornerShape(4.dp))
-                                )
+                                Box(modifier = Modifier.size(20.dp).background(Color.White, RoundedCornerShape(4.dp)))
                             }
-                            // Black option
                             Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .background(
-                                        if (device.labelColor.value == "black") AccentOrange else TabIconBackground,
-                                        RoundedCornerShape(8.dp)
-                                    )
-                                    .clickable {
-                                        device.labelColor.value = "black"
-                                        viewModel.saveDeviceStates()
-                                    },
+                                modifier = Modifier.size(36.dp)
+                                    .background(if (device.labelColor.value == "black") AccentOrange else TabIconBackground, RoundedCornerShape(8.dp))
+                                    .clickable { device.labelColor.value = "black"; viewModel.saveDeviceStates() },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(20.dp)
-                                        .background(Color.Black, RoundedCornerShape(4.dp))
-                                        .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                                )
+                                Box(modifier = Modifier.size(20.dp).background(Color.Black, RoundedCornerShape(4.dp))
+                                    .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(4.dp)))
                             }
                         }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Size slider
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Text("Size: ${device.size.value.toInt()}%", color = TextPrimary)
                         Slider(
@@ -443,30 +370,46 @@ fun DeviceSettingsContent(viewModel: DeviceViewModel, isBasic: Boolean) {
                             onValueChange = { device.size.value = it; viewModel.saveDeviceStates() },
                             valueRange = 30f..250f,
                             modifier = Modifier.fillMaxWidth(),
-                            colors = SliderDefaults.colors(
-                                thumbColor = DarkBlue,
-                                activeTrackColor = DarkBlue,
-                                inactiveTrackColor = Color.Black
-                            )
+                            colors = SliderDefaults.colors(thumbColor = DarkBlue, activeTrackColor = DarkBlue, inactiveTrackColor = Color.Black)
                         )
                     }
 
-                    // Advanced section
                     if (advancedExpanded) {
                         Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            "Camera Stream",
-                            color = TextSecondary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+
+                        // Alarm State Only toggle — Inception only
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Alarm State Only", color = TextPrimary)
+                                Text(
+                                    "Only trigger when Inception area is armed and input activates. " +
+                                            "Prevents false triggers from motion sensors during business hours.",
+                                    fontSize = 11.sp,
+                                    color = TextSecondary.copy(alpha = 0.7f),
+                                    lineHeight = 15.sp
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Switch(
+                                checked = device.alarmStateOnly.value,
+                                onCheckedChange = { device.alarmStateOnly.value = it; viewModel.saveDeviceStates() },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = DarkBlue, checkedTrackColor = Color.White,
+                                    uncheckedThumbColor = Color.White, uncheckedTrackColor = Color.Black
+                                )
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("Camera Stream", color = TextSecondary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                         Spacer(modifier = Modifier.height(6.dp))
                         CameraUrlBuilder(
                             currentUrl = device.streamUrl.value,
-                            onUrlChanged = {
-                                device.streamUrl.value = it
-                                viewModel.saveDeviceStates()
-                            }
+                            onUrlChanged = { device.streamUrl.value = it; viewModel.saveDeviceStates() }
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Row(
@@ -477,14 +420,9 @@ fun DeviceSettingsContent(viewModel: DeviceViewModel, isBasic: Boolean) {
                             Text("Enable Camera Link", color = TextPrimary)
                             Switch(
                                 checked = device.cameraEnabled.value,
-                                onCheckedChange = if (isBasic) null else {
-                                    { device.cameraEnabled.value = it; viewModel.saveDeviceStates() }
-                                },
+                                onCheckedChange = if (isBasic) null else { { device.cameraEnabled.value = it; viewModel.saveDeviceStates() } },
                                 enabled = !isBasic,
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = DarkBlue, checkedTrackColor = Color.White,
-                                    uncheckedThumbColor = Color.White, uncheckedTrackColor = Color.Black
-                                )
+                                colors = SwitchDefaults.colors(checkedThumbColor = DarkBlue, checkedTrackColor = Color.White, uncheckedThumbColor = Color.White, uncheckedTrackColor = Color.Black)
                             )
                         }
                         Spacer(modifier = Modifier.height(8.dp))
@@ -496,14 +434,9 @@ fun DeviceSettingsContent(viewModel: DeviceViewModel, isBasic: Boolean) {
                             Text("Enable SMS Alerts", color = TextPrimary)
                             Switch(
                                 checked = device.smsEnabled.value,
-                                onCheckedChange = if (isBasic) null else {
-                                    { device.smsEnabled.value = it; viewModel.saveDeviceStates() }
-                                },
+                                onCheckedChange = if (isBasic) null else { { device.smsEnabled.value = it; viewModel.saveDeviceStates() } },
                                 enabled = !isBasic,
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = DarkBlue, checkedTrackColor = Color.White,
-                                    uncheckedThumbColor = Color.White, uncheckedTrackColor = Color.Black
-                                )
+                                colors = SwitchDefaults.colors(checkedThumbColor = DarkBlue, checkedTrackColor = Color.White, uncheckedThumbColor = Color.White, uncheckedTrackColor = Color.Black)
                             )
                         }
                     }
@@ -512,8 +445,7 @@ fun DeviceSettingsContent(viewModel: DeviceViewModel, isBasic: Boolean) {
                         TextButton(onClick = { advancedExpanded = !advancedExpanded }) {
                             Text(
                                 if (advancedExpanded) "Hide Advanced" else "Show Advanced",
-                                color = Color.White,
-                                fontSize = 14.sp,
+                                color = Color.White, fontSize = 14.sp,
                                 textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline
                             )
                         }
@@ -523,16 +455,12 @@ fun DeviceSettingsContent(viewModel: DeviceViewModel, isBasic: Boolean) {
 
             item {
                 Spacer(modifier = Modifier.height(8.dp))
-                Button(
-                    onClick = { viewModel.resetDevicePositions() },
-                    modifier = Modifier.fillMaxWidth(),
+                Button(onClick = { viewModel.resetDevicePositions() }, modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(backgroundColor = TabIconBackground, contentColor = Color.White),
                     shape = RoundedCornerShape(8.dp)
                 ) { Text("Reset Device Positions") }
                 Spacer(modifier = Modifier.height(8.dp))
-                Button(
-                    onClick = { viewModel.toggleAllDevices() },
-                    modifier = Modifier.fillMaxWidth(),
+                Button(onClick = { viewModel.toggleAllDevices() }, modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(backgroundColor = TabIconBackground, contentColor = Color.White),
                     shape = RoundedCornerShape(8.dp)
                 ) { Text("Toggle All Devices") }
@@ -546,13 +474,10 @@ fun DeviceSettingsContent(viewModel: DeviceViewModel, isBasic: Boolean) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-fun IpContent(
-    viewModel: DeviceViewModel,
-    modbusIp: String,
-    context: Context
-) {
+fun IpContent(viewModel: DeviceViewModel, modbusIp: String, context: Context) {
     val scope = rememberCoroutineScope()
     val selectedSource by viewModel.inputSourceType
+    val moxa2Ip by viewModel.moxa2Ip
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -562,33 +487,25 @@ fun IpContent(
         item {
             Text("Input Source", fontSize = 24.sp, color = TextPrimary, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                "Choose which hardware integration supplies alarm inputs to VAD.",
-                fontSize = 13.sp,
-                color = TextSecondary.copy(alpha = 0.8f)
-            )
+            Text("Choose which hardware integration supplies alarm inputs to VAD.",
+                fontSize = 13.sp, color = TextSecondary.copy(alpha = 0.8f))
         }
 
         item {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 InputSourceType.values().forEach { type ->
-                    SourceSelectorCard(
-                        type = type,
-                        isSelected = selectedSource == type,
-                        onClick = { viewModel.setInputSourceType(type) }
-                    )
+                    SourceSelectorCard(type = type, isSelected = selectedSource == type, onClick = { viewModel.setInputSourceType(type) })
                 }
             }
         }
 
-        item {
-            Divider(color = Color.White.copy(alpha = 0.08f), thickness = 1.dp)
-        }
+        item { Divider(color = Color.White.copy(alpha = 0.08f), thickness = 1.dp) }
 
         when (selectedSource) {
-            InputSourceType.MOXA_REST  -> { item { MoxaRestConfig(viewModel, modbusIp, context) } }
-            InputSourceType.MODBUS_TCP -> { item { ModbusTcpConfig(viewModel, modbusIp, context) } }
-            InputSourceType.INCEPTION  -> {
+            InputSourceType.MOXA_REST   -> { item { MoxaRestConfig(viewModel, modbusIp, context, isUnit2 = false) } }
+            InputSourceType.MOXA_REST_2 -> { item { MoxaRestConfig(viewModel, modbusIp, context, isUnit2 = true) } }
+            InputSourceType.MODBUS_TCP  -> { item { ModbusTcpConfig(viewModel, modbusIp, context) } }
+            InputSourceType.INCEPTION   -> {
                 item { InceptionConnectionConfig(viewModel, context) }
                 item { InceptionInputMappingConfig(viewModel, scope) }
             }
@@ -600,17 +517,16 @@ fun IpContent(
             Button(
                 onClick = {
                     viewModel.saveInceptionConfig(context)
+                    viewModel.syncDevicesFromMappingsNow()
                     viewModel.restartPolling()
                     saved = true
-                    Toast.makeText(context, "✅ Settings saved, reconnecting…", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Settings saved, reconnecting…", Toast.LENGTH_SHORT).show()
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 colors = ButtonDefaults.buttonColors(backgroundColor = ActiveTabColor, contentColor = Color.White),
                 shape = RoundedCornerShape(28.dp)
             ) {
-                Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(if (saved) "✅ Saved & Reconnecting" else "Save & Apply", fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                Text(if (saved) "Saved & Reconnecting" else "Save & Apply", fontSize = 16.sp, fontWeight = FontWeight.Medium)
             }
             LaunchedEffect(saved) {
                 if (saved) { kotlinx.coroutines.delay(2500); saved = false }
@@ -622,9 +538,10 @@ fun IpContent(
 @Composable
 private fun SourceSelectorCard(type: InputSourceType, isSelected: Boolean, onClick: () -> Unit) {
     val (subtitle, icon) = when (type) {
-        InputSourceType.MOXA_REST  -> "REST polling · Moxa ioLogik" to Icons.Filled.Router
-        InputSourceType.MODBUS_TCP -> "Modbus TCP · port 502"        to Icons.Filled.Cable
-        InputSourceType.INCEPTION  -> "Inner Range Inception REST"   to Icons.Filled.Security
+        InputSourceType.MOXA_REST   -> "REST polling · slots 1–16"  to Icons.Filled.Router
+        InputSourceType.MOXA_REST_2 -> "REST polling · slots 17–32" to Icons.Filled.Router
+        InputSourceType.MODBUS_TCP  -> "Modbus TCP · port 502"       to Icons.Filled.Cable
+        InputSourceType.INCEPTION   -> "Inner Range Inception REST"  to Icons.Filled.Security
     }
     Surface(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
@@ -643,14 +560,14 @@ private fun SourceSelectorCard(type: InputSourceType, isSelected: Boolean, onCli
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 Box(
                     modifier = Modifier.size(40.dp).background(
-                        if (isSelected) AccentOrange.copy(alpha = 0.2f) else TabIconBackground, CircleShape
-                    ),
+                        if (isSelected) AccentOrange.copy(alpha = 0.2f) else TabIconBackground, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(icon, contentDescription = null, tint = if (isSelected) AccentOrange else TextSecondary, modifier = Modifier.size(20.dp))
                 }
                 Column {
-                    Text(type.displayName, fontSize = 15.sp, color = if (isSelected) AccentOrange else TextPrimary, fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal)
+                    Text(type.displayName, fontSize = 15.sp, color = if (isSelected) AccentOrange else TextPrimary,
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal)
                     Text(subtitle, fontSize = 11.sp, color = TextSecondary.copy(alpha = 0.7f))
                 }
             }
@@ -662,13 +579,19 @@ private fun SourceSelectorCard(type: InputSourceType, isSelected: Boolean, onCli
 }
 
 @Composable
-private fun MoxaRestConfig(viewModel: DeviceViewModel, modbusIp: String, context: Context) {
-    var ipInput by remember(modbusIp) { mutableStateOf(modbusIp) }
-    IpSectionHeader("Moxa ioLogik Settings", "Polls GET /api/slot/0/io/di every 3 s.")
-    IpTextField("Device IP Address", ipInput, { ipInput = it }, "192.168.0.250")
+private fun MoxaRestConfig(viewModel: DeviceViewModel, modbusIp: String, context: Context, isUnit2: Boolean = false) {
+    val moxa2Ip by viewModel.moxa2Ip
+    var ipInput by remember(if (isUnit2) moxa2Ip else modbusIp) {
+        mutableStateOf(if (isUnit2) moxa2Ip else modbusIp)
+    }
+    val slotRange = if (isUnit2) "17–32" else "1–16"
+    IpSectionHeader("Moxa ioLogik Settings (Unit ${if (isUnit2) 2 else 1})",
+        "Polls GET /api/slot/0/io/di every 3 s. Maps to device slots $slotRange.")
+    IpTextField("Device IP Address", ipInput, { ipInput = it }, if (isUnit2) "192.168.0.251" else "192.168.0.250")
     Spacer(modifier = Modifier.height(12.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-        Button(onClick = { Toast.makeText(context, "Testing Moxa connection…", Toast.LENGTH_SHORT).show() },
+        Button(
+            onClick = { Toast.makeText(context, "Testing Moxa Unit ${if (isUnit2) 2 else 1}…", Toast.LENGTH_SHORT).show() },
             modifier = Modifier.weight(1f).height(48.dp),
             colors = ButtonDefaults.buttonColors(backgroundColor = TabIconBackground, contentColor = Color.White),
             shape = RoundedCornerShape(24.dp)
@@ -677,10 +600,14 @@ private fun MoxaRestConfig(viewModel: DeviceViewModel, modbusIp: String, context
             Spacer(modifier = Modifier.width(6.dp))
             Text("Test", fontSize = 14.sp)
         }
-        Button(onClick = {
-            if (ipInput.trim().isNotEmpty()) { viewModel.setModbusIp(ipInput.trim()); Toast.makeText(context, "✅ IP saved", Toast.LENGTH_SHORT).show() }
-            else Toast.makeText(context, "⚠️ Enter a valid IP", Toast.LENGTH_SHORT).show()
-        }, modifier = Modifier.weight(1f).height(48.dp),
+        Button(
+            onClick = {
+                if (ipInput.trim().isNotEmpty()) {
+                    if (isUnit2) viewModel.setMoxa2Ip(ipInput.trim()) else viewModel.setModbusIp(ipInput.trim())
+                    Toast.makeText(context, "IP saved", Toast.LENGTH_SHORT).show()
+                } else Toast.makeText(context, "Enter a valid IP", Toast.LENGTH_SHORT).show()
+            },
+            modifier = Modifier.weight(1f).height(48.dp),
             colors = ButtonDefaults.buttonColors(backgroundColor = ActiveTabColor, contentColor = Color.White),
             shape = RoundedCornerShape(24.dp)
         ) { Text("Save IP", fontSize = 14.sp, fontWeight = FontWeight.Medium) }
@@ -694,7 +621,8 @@ private fun ModbusTcpConfig(viewModel: DeviceViewModel, modbusIp: String, contex
     IpTextField("Device IP Address", ipInput, { ipInput = it }, "192.168.0.250")
     Spacer(modifier = Modifier.height(12.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-        Button(onClick = { Toast.makeText(context, "Testing Modbus connection…", Toast.LENGTH_SHORT).show() },
+        Button(
+            onClick = { Toast.makeText(context, "Testing Modbus connection…", Toast.LENGTH_SHORT).show() },
             modifier = Modifier.weight(1f).height(48.dp),
             colors = ButtonDefaults.buttonColors(backgroundColor = TabIconBackground, contentColor = Color.White),
             shape = RoundedCornerShape(24.dp)
@@ -703,10 +631,12 @@ private fun ModbusTcpConfig(viewModel: DeviceViewModel, modbusIp: String, contex
             Spacer(modifier = Modifier.width(6.dp))
             Text("Test", fontSize = 14.sp)
         }
-        Button(onClick = {
-            if (ipInput.trim().isNotEmpty()) { viewModel.setModbusIp(ipInput.trim()); Toast.makeText(context, "✅ IP saved", Toast.LENGTH_SHORT).show() }
-            else Toast.makeText(context, "⚠️ Enter a valid IP", Toast.LENGTH_SHORT).show()
-        }, modifier = Modifier.weight(1f).height(48.dp),
+        Button(
+            onClick = {
+                if (ipInput.trim().isNotEmpty()) { viewModel.setModbusIp(ipInput.trim()); Toast.makeText(context, "IP saved", Toast.LENGTH_SHORT).show() }
+                else Toast.makeText(context, "Enter a valid IP", Toast.LENGTH_SHORT).show()
+            },
+            modifier = Modifier.weight(1f).height(48.dp),
             colors = ButtonDefaults.buttonColors(backgroundColor = ActiveTabColor, contentColor = Color.White),
             shape = RoundedCornerShape(24.dp)
         ) { Text("Save IP", fontSize = 14.sp, fontWeight = FontWeight.Medium) }
@@ -749,7 +679,8 @@ private fun InceptionConnectionConfig(viewModel: DeviceViewModel, context: Conte
     Surface(color = if (isConnected) Color(0xFF0D2B1A) else Color(0xFF2B0D0D), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(modifier = Modifier.size(10.dp).background(if (isConnected) Color(0xFF4CAF50) else Color(0xFFE53935), CircleShape))
-            Text(if (isConnected) "Connected · $statusText" else "Disconnected · $statusText", fontSize = 13.sp, color = if (isConnected) Color(0xFF81C784) else Color(0xFFEF9A9A))
+            Text(if (isConnected) "Connected · $statusText" else "Disconnected · $statusText",
+                fontSize = 13.sp, color = if (isConnected) Color(0xFF81C784) else Color(0xFFEF9A9A))
         }
     }
 }
@@ -760,7 +691,8 @@ private fun InceptionInputMappingConfig(viewModel: DeviceViewModel, scope: kotli
     var isLoading by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
     val currentMappings by remember { derivedStateOf { viewModel.inceptionConfig.inputMappings.value } }
-    IpSectionHeader("Input → Device Slot Mapping", "Assign each Inception input to a VAD device slot (1–16). Leave empty to auto-assign.")
+    IpSectionHeader("Input → Device Slot Mapping",
+        "Manually assign each Inception input to a VAD device slot (1–32). All inputs must be mapped — there is no auto-assign for Inception.")
     Button(
         onClick = {
             scope.launch {
@@ -796,12 +728,13 @@ private fun InceptionInputMappingConfig(viewModel: DeviceViewModel, scope: kotli
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("${availableInputs!!.size} inputs found", fontSize = 13.sp, color = TextSecondary)
             TextButton(onClick = { viewModel.clearInceptionInputMappings() }, colors = ButtonDefaults.textButtonColors(contentColor = AccentOrange)) {
-                Text("Clear all (use auto)", fontSize = 12.sp)
+                Text("Clear all", fontSize = 12.sp)
             }
         }
         Spacer(modifier = Modifier.height(6.dp))
         availableInputs!!.forEach { inputInfo ->
-            InceptionMappingRow(inputInfo = inputInfo, currentSlot = currentMappings[inputInfo.id], onSlotChanged = { slot -> viewModel.updateInceptionInputMapping(inputInfo.id, slot) })
+            InceptionMappingRow(inputInfo = inputInfo, currentSlot = currentMappings[inputInfo.id],
+                onSlotChanged = { slot -> viewModel.updateInceptionInputMapping(inputInfo.id, slot) })
             Spacer(modifier = Modifier.height(6.dp))
         }
     }
@@ -811,26 +744,28 @@ private fun InceptionInputMappingConfig(viewModel: DeviceViewModel, scope: kotli
 private fun InceptionMappingRow(inputInfo: InceptionInputInfo, currentSlot: Int?, onSlotChanged: (Int?) -> Unit) {
     var slotText by remember(currentSlot) { mutableStateOf(currentSlot?.toString() ?: "") }
     Surface(color = InputFieldBackground, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
-        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(inputInfo.name, fontSize = 13.sp, color = TextPrimary, fontWeight = FontWeight.Medium)
                 Text("Reporting ID: ${inputInfo.reportingId}", fontSize = 10.sp, color = TextSecondary.copy(alpha = 0.6f))
             }
             Spacer(modifier = Modifier.width(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("→ Slot", fontSize = 12.sp, color = TextSecondary)
+                Text("Slot", fontSize = 12.sp, color = TextSecondary)
                 Spacer(modifier = Modifier.width(8.dp))
                 OutlinedTextField(
                     value = slotText,
                     onValueChange = { v ->
                         slotText = v.filter { it.isDigit() }.take(2)
                         val parsed = slotText.toIntOrNull()
-                        onSlotChanged(if (parsed != null && parsed in 1..16) parsed else null)
+                        onSlotChanged(if (parsed != null && parsed in 1..32) parsed else null)
                     },
                     modifier = Modifier.width(64.dp), singleLine = true,
-                    placeholder = { Text("Auto", fontSize = 11.sp, color = TextSecondary.copy(alpha = 0.5f)) },
+                    placeholder = { Text("1-32", fontSize = 11.sp, color = TextSecondary.copy(alpha = 0.5f)) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    colors = TextFieldDefaults.outlinedTextFieldColors(backgroundColor = TabIconBackground, textColor = Color.White, cursorColor = AccentOrange, focusedBorderColor = AccentOrange, unfocusedBorderColor = Color.Transparent),
+                    colors = TextFieldDefaults.outlinedTextFieldColors(backgroundColor = TabIconBackground, textColor = Color.White,
+                        cursorColor = AccentOrange, focusedBorderColor = AccentOrange, unfocusedBorderColor = Color.Transparent),
                     shape = RoundedCornerShape(8.dp)
                 )
             }
@@ -876,8 +811,6 @@ fun FloorplanContent(viewModel: DeviceViewModel, launcher: ActivityResultLaunche
             shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(horizontal = 24.dp, vertical = 14.dp)
         ) {
             Text("Select Floorplan Image", fontSize = 16.sp, fontWeight = FontWeight.Medium)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("⌄", fontSize = 20.sp)
         }
         Spacer(modifier = Modifier.height(24.dp))
         floorplanUri?.let { uri ->
@@ -890,11 +823,7 @@ fun FloorplanContent(viewModel: DeviceViewModel, launcher: ActivityResultLaunche
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 colors = ButtonDefaults.buttonColors(backgroundColor = ActiveTabColor, contentColor = Color.White),
                 shape = RoundedCornerShape(28.dp)
-            ) {
-                Text("Remove Floorplan", fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("→", fontSize = 18.sp)
-            }
+            ) { Text("Remove Floorplan", fontSize = 16.sp, fontWeight = FontWeight.Medium) }
         }
     }
 }
@@ -915,7 +844,8 @@ fun PasswordContent(viewModel: DeviceViewModel, password: String, context: Conte
             placeholder = { Text("********************", color = TextSecondary.copy(alpha = 0.6f), fontSize = 16.sp) },
             singleLine = true, visualTransformation = PasswordVisualTransformation(),
             modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
-            colors = TextFieldDefaults.outlinedTextFieldColors(backgroundColor = InputFieldBackground, textColor = Color.White, cursorColor = Color.White, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
+            colors = TextFieldDefaults.outlinedTextFieldColors(backgroundColor = InputFieldBackground, textColor = Color.White,
+                cursorColor = Color.White, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
             leadingIcon = { Icon(painter = painterResource(id = R.drawable.ic_password), contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp)) }
         )
         Spacer(modifier = Modifier.height(24.dp))
@@ -925,24 +855,21 @@ fun PasswordContent(viewModel: DeviceViewModel, password: String, context: Conte
             placeholder = { Text("********************", color = TextSecondary.copy(alpha = 0.6f), fontSize = 16.sp) },
             singleLine = true, visualTransformation = PasswordVisualTransformation(),
             modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
-            colors = TextFieldDefaults.outlinedTextFieldColors(backgroundColor = InputFieldBackground, textColor = Color.White, cursorColor = Color.White, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
+            colors = TextFieldDefaults.outlinedTextFieldColors(backgroundColor = InputFieldBackground, textColor = Color.White,
+                cursorColor = Color.White, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
             leadingIcon = { Icon(painter = painterResource(id = R.drawable.ic_password), contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp)) }
         )
         Spacer(modifier = Modifier.weight(1f))
         Button(onClick = {
             if (password.isNotEmpty() && password == confirmPassword) {
                 viewModel.changePassword(password); onPasswordChange(""); confirmPassword = ""
-                Toast.makeText(context, "✅ Password changed", Toast.LENGTH_SHORT).show()
-            } else if (password != confirmPassword) Toast.makeText(context, "❌ Passwords don't match", Toast.LENGTH_SHORT).show()
-            else Toast.makeText(context, "⚠️ Enter a password", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Password changed", Toast.LENGTH_SHORT).show()
+            } else if (password != confirmPassword) Toast.makeText(context, "Passwords don't match", Toast.LENGTH_SHORT).show()
+            else Toast.makeText(context, "Enter a password", Toast.LENGTH_SHORT).show()
         }, modifier = Modifier.fillMaxWidth().height(56.dp),
             colors = ButtonDefaults.buttonColors(backgroundColor = ActiveTabColor, contentColor = Color.White),
             shape = RoundedCornerShape(28.dp)
-        ) {
-            Text("Save", fontSize = 16.sp, fontWeight = FontWeight.Medium)
-            Spacer(modifier = Modifier.width(4.dp))
-            Text("→", fontSize = 18.sp)
-        }
+        ) { Text("Save", fontSize = 16.sp, fontWeight = FontWeight.Medium) }
     }
 }
 
@@ -975,30 +902,85 @@ fun LicenseContent(viewModel: DeviceViewModel, context: Context, licenseKey: Str
             }
         }
         Spacer(modifier = Modifier.height(24.dp))
+
+        val expiryDate = remember { LicenseManager.getExpiryDateString(context) }
+        val daysLeft = remember { LicenseManager.getDaysUntilExpiry(context) }
+        val currentLicenseType = remember { LicenseManager.getLicenseType(context) }
+
+        if (currentLicenseType != "NONE") {
+            Text("Licence Status", fontSize = 18.sp, color = TextPrimary, fontWeight = FontWeight.Medium)
+            Spacer(modifier = Modifier.height(8.dp))
+            Box(
+                modifier = Modifier.fillMaxWidth().background(
+                    when {
+                        currentLicenseType == "EXPIRED" -> Color(0xFF3B1515)
+                        daysLeft != null && daysLeft <= 30 -> Color(0xFF2B2010)
+                        else -> Color(0xFF0D2B1A)
+                    }, RoundedCornerShape(12.dp)
+                ).padding(16.dp)
+            ) {
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Box(modifier = Modifier.size(10.dp).background(
+                            when {
+                                currentLicenseType == "EXPIRED" -> Color(0xFFE53935)
+                                daysLeft != null && daysLeft <= 30 -> Color(0xFFF59E0B)
+                                else -> Color(0xFF4CAF50)
+                            }, CircleShape))
+                        Text(
+                            when (currentLicenseType) {
+                                "EXPIRED" -> "Licence expired — please renew"
+                                "PREMIUM" -> "Premium licence — active"
+                                "BASIC"   -> "Basic licence — active"
+                                else      -> "Licence active"
+                            },
+                            fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                            color = when {
+                                currentLicenseType == "EXPIRED" -> Color(0xFFEF9A9A)
+                                daysLeft != null && daysLeft <= 30 -> Color(0xFFFCD34D)
+                                else -> Color(0xFF81C784)
+                            }
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    if (expiryDate != null) {
+                        Text(
+                            when {
+                                currentLicenseType == "EXPIRED" -> "Expired on $expiryDate"
+                                daysLeft != null && daysLeft <= 30 -> "Expires $expiryDate · $daysLeft days remaining"
+                                else -> "Expires $expiryDate"
+                            },
+                            fontSize = 12.sp, color = TextSecondary.copy(alpha = 0.8f)
+                        )
+                    } else {
+                        Text("No expiry — legacy licence", fontSize = 12.sp, color = TextSecondary.copy(alpha = 0.8f))
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+
         Text("Enter New Licence Key", fontSize = 18.sp, color = TextPrimary, fontWeight = FontWeight.Medium)
         Spacer(modifier = Modifier.height(8.dp))
         OutlinedTextField(value = licenseKey, onValueChange = onLicenseKeyChange,
             placeholder = { Text("********************", color = TextSecondary.copy(alpha = 0.6f), fontSize = 16.sp) },
             singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
-            colors = TextFieldDefaults.outlinedTextFieldColors(backgroundColor = InputFieldBackground, textColor = Color.White, cursorColor = Color.White, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
+            colors = TextFieldDefaults.outlinedTextFieldColors(backgroundColor = InputFieldBackground, textColor = Color.White,
+                cursorColor = Color.White, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
             leadingIcon = { Icon(painter = painterResource(id = R.drawable.ic_key), contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp)) }
         )
         Spacer(modifier = Modifier.weight(1f))
         Button(onClick = {
             val trimmedKey = licenseKey.trim()
-            if (trimmedKey.isEmpty()) { Toast.makeText(context, "⚠️ Please enter a license key", Toast.LENGTH_SHORT).show(); return@Button }
+            if (trimmedKey.isEmpty()) { Toast.makeText(context, "Please enter a license key", Toast.LENGTH_SHORT).show(); return@Button }
             if (LicenseManager.validateLicense(context, trimmedKey)) {
                 LicenseManager.saveLicense(context, trimmedKey)
-                viewModel.forceRefreshLicense(context) { Toast.makeText(context, "✅ License activated: ${LicenseManager.getLicenseType(context)}", Toast.LENGTH_LONG).show() }
-            } else Toast.makeText(context, "❌ Invalid license key", Toast.LENGTH_LONG).show()
+                viewModel.forceRefreshLicense(context) { Toast.makeText(context, "License activated: ${LicenseManager.getLicenseType(context)}", Toast.LENGTH_LONG).show() }
+            } else Toast.makeText(context, "Invalid license key", Toast.LENGTH_LONG).show()
         }, modifier = Modifier.fillMaxWidth().height(56.dp),
             colors = ButtonDefaults.buttonColors(backgroundColor = ActiveTabColor, contentColor = Color.White),
             shape = RoundedCornerShape(28.dp)
-        ) {
-            Text("Activate", fontSize = 16.sp, fontWeight = FontWeight.Medium)
-            Spacer(modifier = Modifier.width(4.dp))
-            Text("→", fontSize = 18.sp)
-        }
+        ) { Text("Activate", fontSize = 16.sp, fontWeight = FontWeight.Medium) }
     }
 }
 
@@ -1042,7 +1024,7 @@ fun SmsSettings(viewModel: DeviceViewModel) {
                         Text("Name", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                         Spacer(modifier = Modifier.height(6.dp))
                         OutlinedTextField(value = entry.label.value, onValueChange = { viewModel.updateSmsNumberLabel(index, it) },
-                            placeholder = { Text("Enter your name", color = TextSecondary.copy(alpha = 0.6f), fontSize = 14.sp) },
+                            placeholder = { Text("Enter name", color = TextSecondary.copy(alpha = 0.6f), fontSize = 14.sp) },
                             modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
                             colors = TextFieldDefaults.outlinedTextFieldColors(backgroundColor = InputFieldBackground, textColor = Color.White, cursorColor = Color.White, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
                             leadingIcon = { Icon(painter = painterResource(id = R.drawable.ic_user), contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp)) })
@@ -1079,7 +1061,7 @@ fun SmsSettings(viewModel: DeviceViewModel) {
                     Text("Username", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     Spacer(modifier = Modifier.height(6.dp))
                     OutlinedTextField(value = viewModel.smsConfig.username.value, onValueChange = viewModel::updateSmsUsername,
-                        placeholder = { Text("98RRx5", color = TextSecondary.copy(alpha = 0.6f), fontSize = 14.sp) },
+                        placeholder = { Text("Username", color = TextSecondary.copy(alpha = 0.6f), fontSize = 14.sp) },
                         modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
                         colors = TextFieldDefaults.outlinedTextFieldColors(backgroundColor = InputFieldBackground, textColor = Color.White, cursorColor = Color.White, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
                         leadingIcon = { Icon(painter = painterResource(id = R.drawable.ic_user), contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp)) })
@@ -1122,12 +1104,14 @@ fun SmsSettings(viewModel: DeviceViewModel) {
             item { Spacer(modifier = Modifier.height(16.dp)) }
         }
         Row(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(onClick = { viewModel.saveSmsSettings(context); Toast.makeText(context, "✅ SMS settings saved", Toast.LENGTH_SHORT).show() },
+            Button(
+                onClick = { viewModel.saveSmsSettings(context); Toast.makeText(context, "SMS settings saved", Toast.LENGTH_SHORT).show() },
                 modifier = Modifier.weight(1f).height(56.dp),
                 colors = ButtonDefaults.buttonColors(backgroundColor = ActiveTabColor, contentColor = Color.White),
                 shape = RoundedCornerShape(28.dp)
             ) { Text("Save SMS", fontSize = 15.sp, fontWeight = FontWeight.Medium) }
-            Button(onClick = { viewModel.sendTestSms(context) },
+            Button(
+                onClick = { viewModel.sendTestSms(context) },
                 modifier = Modifier.weight(1f).height(56.dp),
                 colors = ButtonDefaults.buttonColors(backgroundColor = ActiveTabColor, contentColor = Color.White),
                 shape = RoundedCornerShape(28.dp)

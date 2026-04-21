@@ -229,8 +229,7 @@ fun LicensePromptDialog(
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("→", fontSize = 18.sp)
+
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))

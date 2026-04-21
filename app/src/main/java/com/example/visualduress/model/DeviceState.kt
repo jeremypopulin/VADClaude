@@ -8,15 +8,17 @@ data class DeviceState(
     var x: MutableState<Float> = mutableStateOf(0f),
     var y: MutableState<Float> = mutableStateOf(0f),
     var size: MutableState<Float> = mutableStateOf(50f),
-    var isEnabled: MutableState<Boolean> = mutableStateOf(true),
+    var isEnabled: MutableState<Boolean> = mutableStateOf(false),
     var isActive: MutableState<Boolean> = mutableStateOf(false),
     var acknowledged: MutableState<Boolean> = mutableStateOf(false),
     var isLicensed: MutableState<Boolean> = mutableStateOf(false),
     var streamUrl: MutableState<String> = mutableStateOf(""),
     var cameraEnabled: MutableState<Boolean> = mutableStateOf(false),
     var smsEnabled: MutableState<Boolean> = mutableStateOf(false),
-    // "white" or "black" — controls the device label text colour on the floor plan
-    var labelColor: MutableState<String> = mutableStateOf("white")
+    var labelColor: MutableState<String> = mutableStateOf("white"),
+    // When true: only trigger on Inception alarm state (area must be armed)
+    // When false: trigger on any input activity (unsealed/active)
+    var alarmStateOnly: MutableState<Boolean> = mutableStateOf(false)
 ) {
     fun toSerializable(): SerializableDeviceState {
         return SerializableDeviceState(
@@ -32,7 +34,8 @@ data class DeviceState(
             streamUrl = streamUrl.value,
             cameraEnabled = cameraEnabled.value,
             smsEnabled = smsEnabled.value,
-            labelColor = labelColor.value
+            labelColor = labelColor.value,
+            alarmStateOnly = alarmStateOnly.value
         )
     }
 
@@ -51,7 +54,8 @@ data class DeviceState(
                 streamUrl = mutableStateOf(data.streamUrl),
                 cameraEnabled = mutableStateOf(data.cameraEnabled),
                 smsEnabled = mutableStateOf(data.smsEnabled),
-                labelColor = mutableStateOf(data.labelColor)
+                labelColor = mutableStateOf(data.labelColor),
+                alarmStateOnly = mutableStateOf(data.alarmStateOnly)
             )
         }
     }

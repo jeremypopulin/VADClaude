@@ -79,13 +79,22 @@ class DeviceViewModel : ViewModel() {
     private val _inputSourceType = mutableStateOf(InputSourceType.MOXA_REST)
     val inputSourceType: State<InputSourceType> = _inputSourceType
 
-    /** Inception configuration (Compose-observable) */
+    /** Inception config (Compose-observable) */
     var inceptionConfig = InceptionConfig()
         private set
 
-    /** IP used for Moxa REST and Modbus TCP */
+    /** Cached input names from the last "Load Inputs from Controller" call.
+     *  Key = Inception GUID, Value = input name.
+     *  Used to sync device names immediately on Save & Apply. */
+    private val _cachedInceptionInputNames = mutableMapOf<String, String>()
+
+    /** IP used for Moxa REST unit 1 and Modbus TCP */
     private val _modbusIp = mutableStateOf("192.168.0.250")
     val modbusIp: State<String> = _modbusIp
+
+    /** IP used for Moxa REST unit 2 (slots 17-32) */
+    private val _moxa2Ip = mutableStateOf("192.168.0.251")
+    val moxa2Ip: State<String> = _moxa2Ip
 
     /** The active InputSource instance */
     private var activeInputSource: InputSource? = null
@@ -158,6 +167,7 @@ class DeviceViewModel : ViewModel() {
             currentPassword = repository.loadPassword()
             _floorplanUri.value = repository.loadFloorplanUri()
             _modbusIp.value = repository.loadModbusIp()
+            _moxa2Ip.value = loadMoxa2Ip(contextRef!!)
 
             savedScaleX = loadFloat(contextRef!!, "scaleX", 1f)
             savedScaleY = loadFloat(contextRef!!, "scaleY", 1f)
@@ -168,7 +178,7 @@ class DeviceViewModel : ViewModel() {
             deviceStates.clear()
             val savedDevices = repository.loadDeviceStates()
             deviceStates.addAll(
-                if (savedDevices.isNotEmpty()) savedDevices else (1..16).map {
+                if (savedDevices.isNotEmpty()) savedDevices else (1..32).map {
                     DeviceState(
                         id = it,
                         name = mutableStateOf("Device $it"),
@@ -233,6 +243,7 @@ class DeviceViewModel : ViewModel() {
         val source = InputSourceFactory.create(
             type = _inputSourceType.value,
             modbusIp = _modbusIp.value,
+            moxa2Ip = _moxa2Ip.value,
             inceptionConfig = inceptionConfig
         )
         activeInputSource = source
@@ -258,9 +269,20 @@ class DeviceViewModel : ViewModel() {
     // -------------------------------------------------------------------------
 
     private suspend fun startPollingLoop(source: InputSource) {
+        var lastSlotNames: Map<Int, String> = emptyMap()
+
         while (true) {
             try {
                 val inputsMap = source.poll()
+
+                // After Inception discovers inputs, sync device names and enabled states
+                if (source is InceptionInputSource) {
+                    val currentSlotNames = source.slotNames
+                    if (currentSlotNames.isNotEmpty() && currentSlotNames != lastSlotNames) {
+                        lastSlotNames = currentSlotNames
+                        syncDevicesFromInception(currentSlotNames)
+                    }
+                }
 
                 // Empty map from long polling = no changes, keep existing state
                 if (inputsMap.isNotEmpty()) {
@@ -303,16 +325,61 @@ class DeviceViewModel : ViewModel() {
         }
     }
 
+    /**
+     * Called after Inception input discovery.
+     * For each mapped slot:
+     *  - Enables the device so it shows on the main screen
+     *  - Sets the device name from the Inception input name
+     *    (only if the user hasn't already renamed it away from the default)
+     * Devices NOT in the Inception mapping are left unchanged.
+     */
+    private fun syncDevicesFromInception(slotNames: Map<Int, String>) {
+        Log.i("ViewModel", "Syncing ${slotNames.size} devices from Inception input names")
+        slotNames.forEach { (slotId, inceptionName) ->
+            val device = deviceStates.find { it.id == slotId } ?: return@forEach
+
+            // Enable the device so its icon appears on the floor plan
+            if (!device.isEnabled.value) {
+                device.isEnabled.value = true
+                Log.d("ViewModel", "Auto-enabled slot $slotId for Inception input '$inceptionName'")
+            }
+
+            // Set name from Inception if it still has the generic default name
+            val currentName = device.name.value
+            val isDefaultName = currentName == "Device $slotId" || currentName == "Device"
+            if (isDefaultName) {
+                device.name.value = inceptionName
+                Log.d("ViewModel", "Auto-named slot $slotId -> '$inceptionName'")
+            }
+        }
+        saveDeviceStates()
+    }
+
     // -------------------------------------------------------------------------
     // Input processing (shared across all sources)
     // -------------------------------------------------------------------------
 
     private fun processInputUpdates(inputsMap: Map<Int, Int>) {
         var anyUnacknowledgedActive = false
+        val isInception = _inputSourceType.value == InputSourceType.INCEPTION
 
         deviceStates.forEach { device ->
-            val currentInput = inputsMap[device.id] ?: 0
-            val isNowActive = currentInput == 1
+            val rawValue = inputsMap[device.id] ?: 0
+
+            // For Inception: rawValue is the PublicState bitmask
+            // For Moxa/Modbus: rawValue is simply 0 or 1
+            val isNowActive = if (isInception) {
+                if (device.alarmStateOnly.value) {
+                    // Alarm state only — bit 3 (8) = input in alarm (area must be armed)
+                    // Also include bit 1 (2) = tamper, always trigger regardless of arm state
+                    (rawValue and (8 or 2)) != 0
+                } else {
+                    // Any activity — unsealed, active, tamper, alarm
+                    (rawValue and (1 or 2 or 8 or 2048)) != 0
+                }
+            } else {
+                rawValue == 1
+            }
 
             if (isNowActive && !device.isActive.value) {
                 device.isActive.value = true
@@ -440,6 +507,11 @@ class DeviceViewModel : ViewModel() {
         contextRef?.let { saveModbusIp(it, ip) }
     }
 
+    fun setMoxa2Ip(ip: String) {
+        _moxa2Ip.value = ip
+        contextRef?.let { saveMoxa2Ip(it, ip) }
+    }
+
     fun changePassword(newPassword: String) {
         currentPassword = newPassword
         contextRef?.let { savePassword(it, newPassword) }
@@ -460,6 +532,8 @@ class DeviceViewModel : ViewModel() {
     fun saveInceptionConfig(context: Context) {
         val prefs = context.getSharedPreferences("inception_config", Context.MODE_PRIVATE)
         prefs.edit().putString("config", Json.encodeToString(inceptionConfig.toSerializable())).apply()
+        // Reset discovery so next poll immediately re-syncs input names
+        (activeInputSource as? InceptionInputSource)?.resetDiscovery()
     }
 
     private fun loadInceptionConfig(context: Context) {
@@ -472,6 +546,16 @@ class DeviceViewModel : ViewModel() {
                 Log.e("ViewModel", "Failed to load Inception config: ${e.message}")
             }
         }
+    }
+
+    private fun saveMoxa2Ip(context: Context, ip: String) {
+        context.getSharedPreferences("duress_prefs", Context.MODE_PRIVATE)
+            .edit().putString("moxa2_ip", ip).apply()
+    }
+
+    private fun loadMoxa2Ip(context: Context): String {
+        return context.getSharedPreferences("duress_prefs", Context.MODE_PRIVATE)
+            .getString("moxa2_ip", "192.168.0.251") ?: "192.168.0.251"
     }
 
     // Input source type persistence
@@ -515,18 +599,45 @@ class DeviceViewModel : ViewModel() {
     suspend fun fetchInceptionInputs(): List<com.example.visualduress.integration.InceptionInputInfo>? {
         return try {
             val source = activeInputSource
-            if (source is InceptionInputSource) {
+            val result = if (source is InceptionInputSource) {
                 source.fetchAvailableInputs()
             } else {
-                // Create a temporary source just to fetch inputs
                 val tempSource = InceptionInputSource(inceptionConfig)
                 tempSource.connect()
                 tempSource.fetchAvailableInputs()
             }
+            // Cache the names so we can sync immediately on Save & Apply
+            result?.forEach { info ->
+                _cachedInceptionInputNames[info.id] = info.name
+            }
+            result
         } catch (e: Exception) {
             Log.e("ViewModel", "Failed to fetch Inception inputs: ${e.message}")
             null
         }
+    }
+
+    /**
+     * Sync device names and enable states immediately from the current
+     * Inception input mappings and cached input names.
+     * Called when Save & Apply is tapped — no poll cycle needed.
+     */
+    fun syncDevicesFromMappingsNow() {
+        val mappings = inceptionConfig.inputMappings.value
+        if (mappings.isEmpty()) return
+
+        mappings.forEach { (guid, slotId) ->
+            val device = deviceStates.find { it.id == slotId } ?: return@forEach
+            val inceptionName = _cachedInceptionInputNames[guid] ?: return@forEach
+
+            // Update name if still default
+            val isDefaultName = device.name.value == "Device $slotId" || device.name.value == "Device"
+            if (isDefaultName) {
+                device.name.value = inceptionName
+                Log.d("ViewModel", "Synced name slot $slotId -> '$inceptionName'")
+            }
+        }
+        saveDeviceStates()
     }
 
     // -------------------------------------------------------------------------

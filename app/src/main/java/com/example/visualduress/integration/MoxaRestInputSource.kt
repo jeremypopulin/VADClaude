@@ -9,20 +9,18 @@ import java.net.URL
 /**
  * Input source that polls a Moxa ioLogik device via its HTTP REST API.
  *
- * Endpoint: GET http://{ip}/api/slot/0/io/di
- * Header:   Accept: vdn.dac.v1
- *
- * Returns digital input states mapped as:
- *   diIndex + 1  ->  diStatus  (0 = off, 1 = on)
- *
- * This is a direct extraction of the existing DeviceRepository.fetchDigitalInputs()
- * logic, moved into the modular input source architecture.
+ * @param ip  IP address of the Moxa unit
+ * @param slotOffset  Added to each input index so the second Moxa unit
+ *                    maps to slots 17-32 instead of 1-16.
+ *                    Unit 1: slotOffset = 0  → slots 1-16
+ *                    Unit 2: slotOffset = 16 → slots 17-32
  */
 class MoxaRestInputSource(
-    private var ip: String
+    private var ip: String,
+    private val slotOffset: Int = 0
 ) : InputSource {
 
-    override val displayName = "Moxa ioLogik REST"
+    override val displayName = if (slotOffset == 0) "Moxa ioLogik REST (Unit 1)" else "Moxa ioLogik REST (Unit 2)"
 
     fun updateIp(newIp: String) {
         ip = newIp
@@ -32,7 +30,7 @@ class MoxaRestInputSource(
         val trimmedIp = ip.trim()
         val url = URL("http://$trimmedIp/api/slot/0/io/di")
 
-        Log.d("MoxaRest", "Polling $url")
+        Log.d("MoxaRest", "Polling $url (slot offset: $slotOffset)")
 
         val conn = url.openConnection() as HttpURLConnection
         conn.apply {
@@ -52,7 +50,8 @@ class MoxaRestInputSource(
 
             return (0 until arr.length()).associate { i ->
                 val obj = arr.getJSONObject(i)
-                (obj.getInt("diIndex") + 1) to obj.getInt("diStatus")
+                // Apply slot offset so unit 2 maps to slots 17-32
+                (obj.getInt("diIndex") + 1 + slotOffset) to obj.getInt("diStatus")
             }
         } finally {
             conn.disconnect()

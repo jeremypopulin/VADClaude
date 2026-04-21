@@ -88,8 +88,17 @@ object LicenseManager {
     }
 
     private fun getActivationDate(context: Context): Long? {
-        val date = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getLong(ACTIVATION_DATE, -1L)
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        var date = prefs.getLong(ACTIVATION_DATE, -1L)
+
+        // If no activation date stored but a valid key exists,
+        // record today as the activation date
+        if (date == -1L && getStoredKey(context) != null) {
+            date = System.currentTimeMillis()
+            prefs.edit().putLong(ACTIVATION_DATE, date).apply()
+            Log.d("LicenseManager", "No activation date found — setting to today")
+        }
+
         return if (date == -1L) null else date
     }
 
