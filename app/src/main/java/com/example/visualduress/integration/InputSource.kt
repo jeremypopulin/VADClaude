@@ -50,5 +50,6 @@ enum class InputSourceType(val displayName: String) {
     MOXA_REST("Moxa ioLogik REST (Unit 1 · slots 1–16)"),
     MOXA_REST_2("Moxa ioLogik REST (Unit 2 · slots 17–32)"),
     MODBUS_TCP("Modbus TCP"),
-    INCEPTION("Inner Range Inception")
+    INCEPTION("Inner Range Inception"),
+    WMS_PRO("Tecom WMS Pro")
 }

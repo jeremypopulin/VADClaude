@@ -17,6 +17,8 @@ import com.example.visualduress.integration.InputSource
 import com.example.visualduress.integration.InputSourceFactory
 import com.example.visualduress.integration.InputSourceType
 import com.example.visualduress.integration.InceptionInputSource
+import com.example.visualduress.integration.WmsProInputSource
+import com.example.visualduress.integration.WmsProDeviceInfo
 import com.example.visualduress.model.*
 import com.example.visualduress.util.LicenseManager
 import kotlinx.coroutines.Job
@@ -46,7 +48,7 @@ class DeviceViewModel : ViewModel() {
 
     fun refreshLicenseType(context: Context) {
         val newType = LicenseManager.getLicenseType(context)
-        Log.d("DeviceViewModel", "licence type: $newType")
+        Log.d("DeviceViewModel", "License type: $newType")
         _licenseType.value = newType
     }
 
@@ -81,6 +83,9 @@ class DeviceViewModel : ViewModel() {
 
     /** Inception config (Compose-observable) */
     var inceptionConfig = InceptionConfig()
+        private set
+
+    var wmsProConfig = WmsProConfig()
         private set
 
     /** Cached input names from the last "Load Inputs from Controller" call.
@@ -192,6 +197,7 @@ class DeviceViewModel : ViewModel() {
             loadSmsSettings(contextRef!!)
             loadInputSourceSettings(contextRef!!)
             loadInceptionConfig(contextRef!!)
+            loadWmsProConfig(contextRef!!)
 
             startPollingWithCurrentSource()
         }
@@ -244,7 +250,8 @@ class DeviceViewModel : ViewModel() {
             type = _inputSourceType.value,
             modbusIp = _modbusIp.value,
             moxa2Ip = _moxa2Ip.value,
-            inceptionConfig = inceptionConfig
+            inceptionConfig = inceptionConfig,
+            wmsProConfig = wmsProConfig
         )
         activeInputSource = source
 
@@ -281,6 +288,14 @@ class DeviceViewModel : ViewModel() {
                     if (currentSlotNames.isNotEmpty() && currentSlotNames != lastSlotNames) {
                         lastSlotNames = currentSlotNames
                         syncDevicesFromInception(currentSlotNames)
+                    }
+                }
+
+                if (source is WmsProInputSource) {
+                    val currentSlotNames = source.slotNames
+                    if (currentSlotNames.isNotEmpty() && currentSlotNames != lastSlotNames) {
+                        lastSlotNames = currentSlotNames
+                        syncDevicesFromInception(currentSlotNames)  // same logic — name sync only
                     }
                 }
 
@@ -362,20 +377,29 @@ class DeviceViewModel : ViewModel() {
     private fun processInputUpdates(inputsMap: Map<Int, Int>) {
         var anyUnacknowledgedActive = false
         val isInception = _inputSourceType.value == InputSourceType.INCEPTION
+        val isWmsPro = _inputSourceType.value == InputSourceType.WMS_PRO
 
         deviceStates.forEach { device ->
             val rawValue = inputsMap[device.id] ?: 0
 
             // For Inception: rawValue is the PublicState bitmask
             // For Moxa/Modbus: rawValue is simply 0 or 1
-            val isNowActive = if (isInception) {
+            val isNowActive = if (isInception || isWmsPro) {
                 if (device.alarmStateOnly.value) {
-                    // Alarm state only — bit 3 (8) = input in alarm (area must be armed)
-                    // Also include bit 1 (2) = tamper, always trigger regardless of arm state
-                    (rawValue and (8 or 2)) != 0
+                    if (isWmsPro) {
+                        // WMS Pro alarm state only — duress/alarm codes only (not tamper)
+                        rawValue in setOf(3, 11, 20, 37, 123, 173, 177, 195, 217)
+                    } else {
+                        // Inception alarm state only — bit 3 (8) = input in alarm
+                        (rawValue and (8 or 2)) != 0
+                    }
                 } else {
-                    // Any activity — unsealed, active, tamper, alarm
-                    (rawValue and (1 or 2 or 8 or 2048)) != 0
+                    if (isWmsPro) {
+                        rawValue != 0  // any alarm eventCode = active
+                    } else {
+                        // Inception — any activity bits
+                        (rawValue and (1 or 2 or 8 or 2048)) != 0
+                    }
                 }
             } else {
                 rawValue == 1
@@ -635,6 +659,75 @@ class DeviceViewModel : ViewModel() {
             if (isDefaultName) {
                 device.name.value = inceptionName
                 Log.d("ViewModel", "Synced name slot $slotId -> '$inceptionName'")
+            }
+        }
+        saveDeviceStates()
+    }
+
+    // -------------------------------------------------------------------------
+    // WMS Pro config
+    // -------------------------------------------------------------------------
+
+    fun updateWmsProHost(value: String)        { wmsProConfig.host.value = value }
+    fun updateWmsProToken(value: String)        { wmsProConfig.bearerToken.value = value }
+
+    fun updateWmsProDeviceMapping(uid: String, slotId: Int?) {
+        val current = wmsProConfig.deviceMappings.value.toMutableMap()
+        if (slotId == null) current.remove(uid) else current[uid] = slotId
+        wmsProConfig.deviceMappings.value = current
+    }
+
+    fun clearWmsProDeviceMappings() {
+        wmsProConfig.deviceMappings.value = emptyMap()
+    }
+
+    fun saveWmsProConfig(context: Context) {
+        val prefs = context.getSharedPreferences("wmspro_config", Context.MODE_PRIVATE)
+        prefs.edit().putString("config", Json.encodeToString(wmsProConfig.toSerializable())).apply()
+        (activeInputSource as? WmsProInputSource)?.resetDiscovery()
+    }
+
+    private fun loadWmsProConfig(context: Context) {
+        val prefs = context.getSharedPreferences("wmspro_config", Context.MODE_PRIVATE)
+        val json = prefs.getString("config", null) ?: return
+        try {
+            wmsProConfig.loadFrom(Json.decodeFromString<SerializableWmsProConfig>(json))
+        } catch (e: Exception) {
+            Log.e("ViewModel", "Failed to load WMS Pro config: ${e.message}")
+        }
+    }
+
+    /** Cached device names from last Load Devices call — for immediate name sync */
+    private val _cachedWmsProDeviceNames = mutableMapOf<String, String>()
+
+    suspend fun fetchWmsProDevices(): List<WmsProDeviceInfo>? {
+        return try {
+            val source = activeInputSource
+            val result = if (source is WmsProInputSource) {
+                source.fetchAvailableDevices()
+            } else {
+                val tempSource = WmsProInputSource(wmsProConfig)
+                tempSource.connect()
+                tempSource.fetchAvailableDevices()
+            }
+            result?.forEach { info -> _cachedWmsProDeviceNames[info.uid] = info.name }
+            result
+        } catch (e: Exception) {
+            Log.e("ViewModel", "Failed to fetch WMS Pro devices: ${e.message}")
+            null
+        }
+    }
+
+    fun syncDevicesFromWmsMappingsNow() {
+        val mappings = wmsProConfig.deviceMappings.value
+        if (mappings.isEmpty()) return
+        mappings.forEach { (uid, slotId) ->
+            val device = deviceStates.find { it.id == slotId } ?: return@forEach
+            val name = _cachedWmsProDeviceNames[uid] ?: return@forEach
+            val isDefault = device.name.value == "Device $slotId" || device.name.value == "Device"
+            if (isDefault) {
+                device.name.value = name
+                Log.d("ViewModel", "WMS Pro synced name slot $slotId -> '$name'")
             }
         }
         saveDeviceStates()

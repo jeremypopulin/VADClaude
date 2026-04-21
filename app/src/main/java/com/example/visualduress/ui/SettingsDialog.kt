@@ -514,6 +514,10 @@ fun IpContent(viewModel: DeviceViewModel, modbusIp: String, context: Context) {
                 item { InceptionConnectionConfig(viewModel, context) }
                 item { InceptionInputMappingConfig(viewModel, scope) }
             }
+            InputSourceType.WMS_PRO -> {
+                item { WmsProConnectionConfig(viewModel, context) }
+                item { WmsProDeviceMappingConfig(viewModel, scope) }
+            }
         }
 
         item {
@@ -521,8 +525,13 @@ fun IpContent(viewModel: DeviceViewModel, modbusIp: String, context: Context) {
             var saved by remember { mutableStateOf(false) }
             Button(
                 onClick = {
-                    viewModel.saveInceptionConfig(context)
-                    viewModel.syncDevicesFromMappingsNow()
+                    if (selectedSource == InputSourceType.WMS_PRO) {
+                        viewModel.saveWmsProConfig(context)
+                        viewModel.syncDevicesFromWmsMappingsNow()
+                    } else {
+                        viewModel.saveInceptionConfig(context)
+                        viewModel.syncDevicesFromMappingsNow()
+                    }
                     viewModel.restartPolling()
                     saved = true
                     Toast.makeText(context, "Settings saved, reconnecting…", Toast.LENGTH_SHORT).show()
@@ -547,6 +556,7 @@ private fun SourceSelectorCard(type: InputSourceType, isSelected: Boolean, onCli
         InputSourceType.MOXA_REST_2 -> "REST polling · slots 17–32" to Icons.Filled.Router
         InputSourceType.MODBUS_TCP  -> "Modbus TCP · port 502"       to Icons.Filled.Cable
         InputSourceType.INCEPTION   -> "Inner Range Inception REST"  to Icons.Filled.Security
+        InputSourceType.WMS_PRO     -> "Tecom WMS Pro REST API v2"   to Icons.Filled.Security
     }
     Surface(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
@@ -754,6 +764,143 @@ private fun InceptionMappingRow(inputInfo: InceptionInputInfo, currentSlot: Int?
             Column(modifier = Modifier.weight(1f)) {
                 Text(inputInfo.name, fontSize = 13.sp, color = TextPrimary, fontWeight = FontWeight.Medium)
                 Text("Reporting ID: ${inputInfo.reportingId}", fontSize = 10.sp, color = TextSecondary.copy(alpha = 0.6f))
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Slot", fontSize = 12.sp, color = TextSecondary)
+                Spacer(modifier = Modifier.width(8.dp))
+                OutlinedTextField(
+                    value = slotText,
+                    onValueChange = { v ->
+                        slotText = v.filter { it.isDigit() }.take(2)
+                        val parsed = slotText.toIntOrNull()
+                        onSlotChanged(if (parsed != null && parsed in 1..32) parsed else null)
+                    },
+                    modifier = Modifier.width(64.dp), singleLine = true,
+                    placeholder = { Text("1-32", fontSize = 11.sp, color = TextSecondary.copy(alpha = 0.5f)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    colors = TextFieldDefaults.outlinedTextFieldColors(backgroundColor = TabIconBackground, textColor = Color.White,
+                        cursorColor = AccentOrange, focusedBorderColor = AccentOrange, unfocusedBorderColor = Color.Transparent),
+                    shape = RoundedCornerShape(8.dp)
+                )
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun WmsProConnectionConfig(viewModel: DeviceViewModel, context: Context) {
+    val config = viewModel.wmsProConfig
+    var showToken by remember { mutableStateOf(false) }
+    IpSectionHeader("WMS Pro Controller",
+        "Enter the IP address of your WMS Pro server and the pre-generated Bearer token from WMS Pro Operator settings.")
+    IpTextField("Host / IP Address", config.host.value, { viewModel.updateWmsProHost(it) }, "192.168.0.100")
+    Spacer(modifier = Modifier.height(10.dp))
+    OutlinedTextField(
+        value = config.bearerToken.value,
+        onValueChange = { viewModel.updateWmsProToken(it) },
+        label = { Text("Bearer Token", fontSize = 12.sp, color = TextSecondary) },
+        placeholder = { Text("Paste bearer token from WMS Pro", color = TextSecondary.copy(alpha = 0.5f)) },
+        singleLine = true,
+        visualTransformation = if (showToken) VisualTransformation.None else PasswordVisualTransformation(),
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = TextFieldDefaults.outlinedTextFieldColors(
+            backgroundColor = InputFieldBackground, textColor = Color.White,
+            cursorColor = Color.White, focusedBorderColor = AccentOrange, unfocusedBorderColor = Color.Transparent
+        ),
+        leadingIcon = { Icon(painter = painterResource(id = R.drawable.ic_key), contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp)) },
+        trailingIcon = {
+            IconButton(onClick = { showToken = !showToken }) {
+                Icon(if (showToken) Icons.Filled.Visibility else Icons.Filled.VisibilityOff, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
+            }
+        }
+    )
+    Spacer(modifier = Modifier.height(10.dp))
+    val isConnected by viewModel.isConnected
+    val statusText by viewModel.connectionStatusText
+    Surface(color = if (isConnected) Color(0xFF0D2B1A) else Color(0xFF2B0D0D), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(modifier = Modifier.size(10.dp).background(if (isConnected) Color(0xFF4CAF50) else Color(0xFFE53935), CircleShape))
+            Text(if (isConnected) "Connected · $statusText" else "Disconnected · $statusText",
+                fontSize = 13.sp, color = if (isConnected) Color(0xFF81C784) else Color(0xFFEF9A9A))
+        }
+    }
+}
+
+@Composable
+private fun WmsProDeviceMappingConfig(viewModel: DeviceViewModel, scope: kotlinx.coroutines.CoroutineScope) {
+    var availableDevices by remember { mutableStateOf<List<com.example.visualduress.integration.WmsProDeviceInfo>?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+    val currentMappings by remember { derivedStateOf { viewModel.wmsProConfig.deviceMappings.value } }
+
+    IpSectionHeader("Device → Slot Mapping",
+        "Manually assign each WMS Pro device to a VAD slot (1–32). All devices must be mapped — there is no auto-assign.")
+    Button(
+        onClick = {
+            scope.launch {
+                isLoading = true; errorMsg = null
+                val result = viewModel.fetchWmsProDevices()
+                if (result != null) availableDevices = result
+                else errorMsg = "Could not connect. Check host and bearer token above."
+                isLoading = false
+            }
+        },
+        modifier = Modifier.fillMaxWidth().height(48.dp),
+        colors = ButtonDefaults.buttonColors(backgroundColor = TabIconBackground, contentColor = Color.White),
+        shape = RoundedCornerShape(24.dp), enabled = !isLoading
+    ) {
+        if (isLoading) {
+            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = AccentOrange, strokeWidth = 2.dp)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Connecting to WMS Pro…", fontSize = 14.sp)
+        } else {
+            Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Load Devices from Controller", fontSize = 14.sp)
+        }
+    }
+    errorMsg?.let {
+        Spacer(modifier = Modifier.height(8.dp))
+        Surface(color = Color(0xFF3B1515), shape = RoundedCornerShape(8.dp)) {
+            Text(it, fontSize = 12.sp, color = Color(0xFFEF9A9A), modifier = Modifier.padding(10.dp))
+        }
+    }
+    if (availableDevices != null) {
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("${availableDevices!!.size} devices found", fontSize = 13.sp, color = TextSecondary)
+            TextButton(onClick = { viewModel.clearWmsProDeviceMappings() }, colors = ButtonDefaults.textButtonColors(contentColor = AccentOrange)) {
+                Text("Clear all", fontSize = 12.sp)
+            }
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        availableDevices!!.forEach { deviceInfo ->
+            WmsProMappingRow(
+                deviceInfo = deviceInfo,
+                currentSlot = currentMappings[deviceInfo.uid],
+                onSlotChanged = { slot -> viewModel.updateWmsProDeviceMapping(deviceInfo.uid, slot) }
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+    }
+}
+
+@Composable
+private fun WmsProMappingRow(
+    deviceInfo: com.example.visualduress.integration.WmsProDeviceInfo,
+    currentSlot: Int?,
+    onSlotChanged: (Int?) -> Unit
+) {
+    var slotText by remember(currentSlot) { mutableStateOf(currentSlot?.toString() ?: "") }
+    Surface(color = InputFieldBackground, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(deviceInfo.name, fontSize = 13.sp, color = TextPrimary, fontWeight = FontWeight.Medium)
+                Text("UID: ${deviceInfo.uid}", fontSize = 10.sp, color = TextSecondary.copy(alpha = 0.6f))
             }
             Spacer(modifier = Modifier.width(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
