@@ -28,8 +28,6 @@ import com.example.visualduress.ui.theme.TextPrimary
 import com.example.visualduress.ui.theme.TextSecondary
 import com.example.visualduress.util.LicenseManager
 
-
-
 @Composable
 fun LicensePromptDialog(
     viewModel: com.example.visualduress.viewmodel.DeviceViewModel,
@@ -40,7 +38,7 @@ fun LicensePromptDialog(
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     Dialog(
-        onDismissRequest = {}, // forced - user must activate
+        onDismissRequest = {},
         properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
     ) {
         Surface(
@@ -53,9 +51,8 @@ fun LicensePromptDialog(
                 modifier = Modifier.padding(28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Title
                 Text(
-                    text = "Activate License",
+                    text = "Activate Licence",
                     fontSize = 26.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
@@ -64,7 +61,7 @@ fun LicensePromptDialog(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
-                    text = "Please enter your license key to continue",
+                    text = "Please enter your licence key to continue",
                     fontSize = 14.sp,
                     color = TextSecondary,
                     fontWeight = FontWeight.Normal
@@ -72,16 +69,9 @@ fun LicensePromptDialog(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // Device ID Section
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        "Device ID",
-                        fontSize = 14.sp,
-                        color = TextSecondary,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Text("Device ID", fontSize = 14.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
                     Spacer(modifier = Modifier.height(6.dp))
-
                     SelectionContainer {
                         Box(
                             modifier = Modifier
@@ -90,19 +80,10 @@ fun LicensePromptDialog(
                                 .padding(16.dp)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    Icons.Filled.Person,
-                                    contentDescription = null,
-                                    tint = TextPrimary.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(20.dp)
-                                )
+                                Icon(Icons.Filled.Person, contentDescription = null,
+                                    tint = TextPrimary.copy(alpha = 0.6f), modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(12.dp))
-                                Text(
-                                    deviceId,
-                                    fontSize = 15.sp,
-                                    color = TextPrimary,
-                                    fontWeight = FontWeight.Normal
-                                )
+                                Text(deviceId, fontSize = 15.sp, color = TextPrimary, fontWeight = FontWeight.Normal)
                             }
                         }
                     }
@@ -110,28 +91,14 @@ fun LicensePromptDialog(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // License Key Input Section
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        "License Key",
-                        fontSize = 14.sp,
-                        color = TextSecondary,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Text("Licence Key", fontSize = 14.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
                     Spacer(modifier = Modifier.height(6.dp))
-
                     OutlinedTextField(
                         value = licenseKey,
-                        onValueChange = {
-                            licenseKey = it
-                            errorMessage = null // Clear error when user types
-                        },
+                        onValueChange = { licenseKey = it; errorMessage = null },
                         placeholder = {
-                            Text(
-                                "Enter your license key",
-                                color = TextSecondary.copy(alpha = 0.6f),
-                                fontSize = 14.sp
-                            )
+                            Text("Enter your licence key", color = TextSecondary.copy(alpha = 0.6f), fontSize = 14.sp)
                         },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
@@ -146,95 +113,49 @@ fun LicensePromptDialog(
                             placeholderColor = TextSecondary.copy(alpha = 0.6f)
                         ),
                         leadingIcon = {
-                            Icon(
-                                Icons.Filled.Lock,
-                                contentDescription = null,
+                            Icon(Icons.Filled.Lock, contentDescription = null,
                                 tint = if (errorMessage != null) ErrorRed else TextPrimary.copy(alpha = 0.6f),
-                                modifier = Modifier.size(20.dp)
-                            )
+                                modifier = Modifier.size(20.dp))
                         },
                         isError = errorMessage != null
                     )
-
-                    // Error Message
                     errorMessage?.let { error ->
                         Spacer(modifier = Modifier.height(8.dp))
-                        Surface(
-                            color = ErrorRed.copy(alpha = 0.15f),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text(
-                                error,
-                                fontSize = 13.sp,
-                                color = ErrorRed,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                            )
+                        Surface(color = ErrorRed.copy(alpha = 0.15f), shape = RoundedCornerShape(8.dp)) {
+                            Text(error, fontSize = 13.sp, color = ErrorRed, fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
                         }
                     }
                 }
 
                 Spacer(modifier = Modifier.height(28.dp))
 
-                // Activate Button
-                /*Button(
-                    onClick = {
-                        if (LicenseManager.validateLicense(context, licenseKey)) {
-                            LicenseManager.saveLicense(context, licenseKey)
-                            onLicenseValidated()
-                        } else {
-                            errorMessage = "❌ Invalid license key"
-                        }
-                    },*/
                 Button(
                     onClick = {
                         val trimmedKey = licenseKey.trim()
-
                         if (trimmedKey.isEmpty()) {
-                            errorMessage = "⚠️ Please enter a license key"
+                            errorMessage = "Please enter a licence key"
                             return@Button
                         }
-
-                        Log.d("LicensePrompt", "🔑 Attempting to activate: $trimmedKey")
-
                         if (LicenseManager.validateLicense(context, trimmedKey)) {
                             LicenseManager.saveLicense(context, trimmedKey)
-                            Log.d("LicensePrompt", "✅ License saved, forcing refresh...")
-
-                            // Force refresh the license state
                             viewModel.forceRefreshLicense(context) {
-                                Log.d("LicensePrompt", "🎉 Force refresh complete, calling onLicenseValidated")
                                 onLicenseValidated()
                             }
                         } else {
-                            Log.e("LicensePrompt", "❌ License validation failed for: $trimmedKey")
-                            errorMessage = "❌ Invalid license key. Please check and try again."
+                            errorMessage = "Invalid licence key. Please check and try again."
                         }
                     },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        backgroundColor = AccentOrange,
-                        contentColor = Color.White
-                    ),
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    colors = ButtonDefaults.buttonColors(backgroundColor = AccentOrange, contentColor = Color.White),
                     shape = RoundedCornerShape(26.dp),
-                    elevation = ButtonDefaults.elevation(
-                        defaultElevation = 4.dp,
-                        pressedElevation = 6.dp
-                    )
+                    elevation = ButtonDefaults.elevation(defaultElevation = 4.dp, pressedElevation = 6.dp)
                 ) {
-                    Text(
-                        "Activate License",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-
+                    Text("Activate Licence", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Help text
                 Text(
                     "Contact support if you need assistance",
                     fontSize = 12.sp,

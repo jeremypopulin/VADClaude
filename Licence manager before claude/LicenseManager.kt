@@ -8,8 +8,8 @@ import java.security.MessageDigest
 
 object LicenseManager {
     private const val SECRET = "JBP-VAD23"
-    private const val PREFS_NAME = "LicensePrefs"
-    private const val LICENSE_KEY = "license_key"
+    private const val PREFS_NAME = "licencePrefs"
+    private const val LICENSE_KEY = "licence_key"
 
     private val basicKeys = listOf(
         "3121",
@@ -38,10 +38,10 @@ object LicenseManager {
         val validKeyBasic = hashKey("$SECRET-$deviceId-basic")
         val validKeyPremium = hashKey("$SECRET-$deviceId-premium")
 
-        Log.d("LicenseManager", "Device ID: $deviceId")
-        Log.d("LicenseManager", "Expected BASIC hash: $validKeyBasic")
-        Log.d("LicenseManager", "Expected PREMIUM hash: $validKeyPremium")
-        Log.d("LicenseManager", "Entered key: $enteredKey")
+        Log.d("licenceManager", "Device ID: $deviceId")
+        Log.d("licenceManager", "Expected BASIC hash: $validKeyBasic")
+        Log.d("licenceManager", "Expected PREMIUM hash: $validKeyPremium")
+        Log.d("licenceManager", "Entered key: $enteredKey")
 
         return enteredKey == validKeyBasic ||
                 enteredKey == validKeyPremium ||
@@ -83,22 +83,22 @@ object LicenseManager {
         val deviceId = getDeviceId(context)
         val key = getStoredKey(context).orEmpty()
 
-        Log.d("LicenseManager", "Getting license type for key: $key")
+        Log.d("licenceManager", "Getting license type for key: $key")
 
         val validKeyBasic = hashKey("$SECRET-$deviceId-basic")
         val validKeyPremium = hashKey("$SECRET-$deviceId-premium")
 
         val result = when {
             key == validKeyPremium || key in premiumKeys -> {
-                Log.d("LicenseManager", "Matched PREMIUM license")
+                Log.d("licenceManager", "Matched PREMIUM license")
                 "PREMIUM"
             }
             key == validKeyBasic || key in basicKeys -> {
-                Log.d("LicenseManager", "Matched BASIC license")
+                Log.d("licenceManager", "Matched BASIC license")
                 "BASIC"
             }
             else -> {
-                Log.d("LicenseManager", "No match found, defaulting to BASIC")
+                Log.d("licenceManager", "No match found, defaulting to BASIC")
                 "BASIC"
             }
         }

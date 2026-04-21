@@ -64,7 +64,7 @@ fun SettingsDialog(
     val context = LocalContext.current
     val licenseType by viewModel.licenseType
     val isBasic = licenseType != "PREMIUM"
-    val initialTab = if (LicenseManager.isLicenseValid(context)) "ip" else "license"
+    val initialTab = if (LicenseManager.isLicenseValid(context)) "ip" else "licence"
     val activeTabState = remember { mutableStateOf(initialTab) }
     val activeTab by activeTabState
     viewModel.setActiveTab(activeTab)
@@ -124,7 +124,7 @@ fun SettingsDialog(
                             onPasswordChange = { newPassword = it }
                         )
                         "sms"       -> { if (!isBasic) SmsSettings(viewModel) }
-                        "license"   -> LicenseContent(
+                        "licence"   -> LicenseContent(
                             viewModel, context, licenseKey,
                             onLicenseKeyChange = { licenseKey = it },
                             deviceId, licenseType
@@ -173,7 +173,7 @@ private fun ModernTabNavigation(
         if (!isBasic) {
             ModernIconTabDrawable("sms",   activeTab, R.drawable.ic_sms,      "SMS",       { onTabChange("sms") })
         }
-        ModernIconTabDrawable("license",   activeTab, R.drawable.ic_license,  "Licence",   { onTabChange("license") })
+        ModernIconTabDrawable("licence",   activeTab, R.drawable.ic_license,  "Licence",   { onTabChange("licence") })
         ModernIconTabDrawable("about",     activeTab, R.drawable.ic_about,    "About",     { onTabChange("about") })
     }
 }
@@ -975,7 +975,7 @@ fun LicenseContent(viewModel: DeviceViewModel, context: Context, licenseKey: Str
             if (trimmedKey.isEmpty()) { Toast.makeText(context, "Please enter a license key", Toast.LENGTH_SHORT).show(); return@Button }
             if (LicenseManager.validateLicense(context, trimmedKey)) {
                 LicenseManager.saveLicense(context, trimmedKey)
-                viewModel.forceRefreshLicense(context) { Toast.makeText(context, "License activated: ${LicenseManager.getLicenseType(context)}", Toast.LENGTH_LONG).show() }
+                viewModel.forceRefreshLicense(context) { Toast.makeText(context, "licence activated: ${LicenseManager.getLicenseType(context)}", Toast.LENGTH_LONG).show() }
             } else Toast.makeText(context, "Invalid license key", Toast.LENGTH_LONG).show()
         }, modifier = Modifier.fillMaxWidth().height(56.dp),
             colors = ButtonDefaults.buttonColors(backgroundColor = ActiveTabColor, contentColor = Color.White),

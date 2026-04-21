@@ -10,8 +10,8 @@ import java.util.concurrent.TimeUnit
 
 object LicenseManager {
     private const val SECRET = "JBP-VAD23"
-    private const val PREFS_NAME = "LicensePrefs"
-    private const val LICENSE_KEY = "license_key"
+    private const val PREFS_NAME = "licencePrefs"
+    private const val LICENSE_KEY = "licence_key"
     private const val ACTIVATION_DATE = "activation_date"
     private const val LICENSE_DURATION_DAYS = 365
 
@@ -65,9 +65,9 @@ object LicenseManager {
 
         if (existingKey != key) {
             prefs.edit().putLong(ACTIVATION_DATE, System.currentTimeMillis()).apply()
-            Log.d("LicenseManager", "New activation recorded for key")
+            Log.d("licenceManager", "New activation recorded for key")
         } else {
-            Log.d("LicenseManager", "Same key re-entered — activation date unchanged")
+            Log.d("licenceManager", "Same key re-entered — activation date unchanged")
         }
     }
 
@@ -96,7 +96,7 @@ object LicenseManager {
         if (date == -1L && getStoredKey(context) != null) {
             date = System.currentTimeMillis()
             prefs.edit().putLong(ACTIVATION_DATE, date).apply()
-            Log.d("LicenseManager", "No activation date found — setting to today")
+            Log.d("licenceManager", "No activation date found — setting to today")
         }
 
         return if (date == -1L) null else date
@@ -139,7 +139,7 @@ object LicenseManager {
         val activationDate = getActivationDate(context) ?: return 0
         val expiryMs = activationDate + TimeUnit.DAYS.toMillis(LICENSE_DURATION_DAYS.toLong())
         val daysLeft = TimeUnit.MILLISECONDS.toDays(expiryMs - System.currentTimeMillis()).toInt()
-        Log.d("LicenseManager", "Days until expiry: $daysLeft")
+        Log.d("licenceManager", "Days until expiry: $daysLeft")
         return daysLeft.coerceAtLeast(0)
     }
 

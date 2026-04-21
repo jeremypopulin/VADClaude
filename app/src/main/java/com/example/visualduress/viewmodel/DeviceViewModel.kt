@@ -46,7 +46,7 @@ class DeviceViewModel : ViewModel() {
 
     fun refreshLicenseType(context: Context) {
         val newType = LicenseManager.getLicenseType(context)
-        Log.d("DeviceViewModel", "License type: $newType")
+        Log.d("DeviceViewModel", "licence type: $newType")
         _licenseType.value = newType
     }
 
