@@ -345,6 +345,7 @@ import com.example.visualduress.model.EventLogEntry
 import com.example.visualduress.ui.components.CameraPreviewPopup
 import com.example.visualduress.ui.components.EventLogPopup
 import com.example.visualduress.ui.components.FullscreenCameraPlayer
+import com.example.visualduress.ui.components.LicenceExpiredScreen
 import com.example.visualduress.ui.components.LicensePromptDialog
 import com.example.visualduress.ui.components.PasswordDialog
 import com.example.visualduress.ui.theme.backgroundGradient
@@ -362,13 +363,32 @@ fun MainScreen(viewModel: DeviceViewModel) {
         activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
-    var licensePromptVisible by remember { mutableStateOf(!LicenseManager.isLicenseValid(context)) }
-    if (licensePromptVisible) {
+    // Licence state check
+    val licenceState = remember { mutableStateOf(LicenseManager.getLicenceState(context)) }
+
+    // No licence at all — show activation prompt
+    if (licenceState.value == LicenseManager.LicenceState.NONE) {
         LicensePromptDialog(
             viewModel = viewModel,
-            onLicenseValidated = { licensePromptVisible = false })
+            onLicenseValidated = {
+                licenceState.value = LicenseManager.getLicenceState(context)
+            })
         return
     }
+
+    // Past grace period — show locked screen
+    if (licenceState.value == LicenseManager.LicenceState.LOCKED) {
+        LicenceExpiredScreen(
+            viewModel = viewModel,
+            onLicenceRenewed = {
+                licenceState.value = LicenseManager.getLicenceState(context)
+            })
+        return
+    }
+
+    // Grace period warning — app runs but shows banner
+    val inGracePeriod = licenceState.value == LicenseManager.LicenceState.GRACE
+    val graceDaysLeft = if (inGracePeriod) LicenseManager.getDaysUntilLocked(context) else null
 
     val floorplanUri by viewModel.floorplanUri
     val isConnected by viewModel.isConnected
@@ -586,6 +606,25 @@ fun MainScreen(viewModel: DeviceViewModel) {
                 }
             }
 
+            // Grace period warning banner
+            if (inGracePeriod && graceDaysLeft != null) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 16.dp)
+                        .background(Color(0xFFF59E0B), shape = RoundedCornerShape(8.dp))
+                        .zIndex(4f)
+                ) {
+                    Text(
+                        text = "LICENCE EXPIRING — $graceDaysLeft days remaining. Renew via Settings → Licence.",
+                        color = Color(0xFF412402),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
+                    )
+                }
+            }
+
             // Critical Alert Banner
             if (criticalAlert) {
                 val flashAlpha = remember { Animatable(1f) }
@@ -799,6 +838,12 @@ fun MainScreen(viewModel: DeviceViewModel) {
                             text = "Reset",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "→",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
