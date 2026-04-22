@@ -363,31 +363,34 @@ fun MainScreen(viewModel: DeviceViewModel) {
         activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
-    // Licence state check
-    val licenceState = remember { mutableStateOf(LicenseManager.getLicenceState(context)) }
+    // Licence state check — recalculates whenever ViewModel refreshes licence
+    val licenseType by viewModel.licenseType
+    val licenceState by remember(licenseType) {
+        derivedStateOf { LicenseManager.getLicenceState(context) }
+    }
 
     // No licence at all — show activation prompt
-    if (licenceState.value == LicenseManager.LicenceState.NONE) {
+    if (licenceState == LicenseManager.LicenceState.NONE) {
         LicensePromptDialog(
             viewModel = viewModel,
             onLicenseValidated = {
-                licenceState.value = LicenseManager.getLicenceState(context)
+                viewModel.forceRefreshLicense(context) {}
             })
         return
     }
 
     // Past grace period — show locked screen
-    if (licenceState.value == LicenseManager.LicenceState.LOCKED) {
+    if (licenceState == LicenseManager.LicenceState.LOCKED) {
         LicenceExpiredScreen(
             viewModel = viewModel,
             onLicenceRenewed = {
-                licenceState.value = LicenseManager.getLicenceState(context)
+                viewModel.forceRefreshLicense(context) {}
             })
         return
     }
 
     // Grace period warning — app runs but shows banner
-    val inGracePeriod = licenceState.value == LicenseManager.LicenceState.GRACE
+    val inGracePeriod = licenceState == LicenseManager.LicenceState.GRACE
     val graceDaysLeft = if (inGracePeriod) LicenseManager.getDaysUntilLocked(context) else null
 
     val floorplanUri by viewModel.floorplanUri
@@ -606,25 +609,6 @@ fun MainScreen(viewModel: DeviceViewModel) {
                 }
             }
 
-            // Grace period warning banner
-            if (inGracePeriod && graceDaysLeft != null) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 16.dp)
-                        .background(Color(0xFFF59E0B), shape = RoundedCornerShape(8.dp))
-                        .zIndex(4f)
-                ) {
-                    Text(
-                        text = "LICENCE EXPIRING — $graceDaysLeft days remaining. Renew via Settings → Licence.",
-                        color = Color(0xFF412402),
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
-                    )
-                }
-            }
-
             // Critical Alert Banner
             if (criticalAlert) {
                 val flashAlpha = remember { Animatable(1f) }
@@ -839,14 +823,27 @@ fun MainScreen(viewModel: DeviceViewModel) {
                             fontSize = 18.sp,
                             fontWeight = FontWeight.SemiBold
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "→",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold
-                        )
                     }
                 }
+            }
+        }
+
+        // Grace period warning banner — shown above everything
+        if (inGracePeriod && graceDaysLeft != null) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 80.dp)
+                    .background(Color(0xFFF59E0B), shape = RoundedCornerShape(8.dp))
+                    .zIndex(6f)
+            ) {
+                Text(
+                    text = "LICENCE EXPIRING — $graceDaysLeft days remaining. Renew via Settings → Licence.",
+                    color = Color(0xFF412402),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
+                )
             }
         }
 

@@ -47,8 +47,15 @@ class DeviceViewModel : ViewModel() {
     val licenseType: State<String> = _licenseType
 
     fun refreshLicenseType(context: Context) {
-        val newType = LicenseManager.getLicenseType(context)
-        Log.d("DeviceViewModel", "License type: $newType")
+        // Use full LicenceState so grace period and locked state trigger recompose
+        val state = LicenseManager.getLicenceState(context)
+        val newType = when (state) {
+            LicenseManager.LicenceState.LOCKED -> "LOCKED"
+            LicenseManager.LicenceState.GRACE  -> "GRACE"
+            LicenseManager.LicenceState.NONE   -> "NONE"
+            LicenseManager.LicenceState.ACTIVE -> LicenseManager.getLicenseType(context)
+        }
+        Log.d("DeviceViewModel", "Licence state: $state, type: $newType")
         _licenseType.value = newType
     }
 
