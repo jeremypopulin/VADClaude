@@ -11,6 +11,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.*
@@ -25,6 +26,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitPointerEventScope
+import androidx.compose.ui.input.pointer.awaitPointerEvent
 import androidx.compose.ui.input.pointer.consumeAllChanges
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -311,6 +316,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -326,6 +332,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -338,6 +345,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.visualduress.R
@@ -669,13 +679,25 @@ fun MainScreen(viewModel: DeviceViewModel) {
                         }
 
                         AsyncImage(
-                            model = if (device.isActive.value && !device.acknowledged.value)
-                                R.drawable.icon_alert else R.drawable.icon_normal_new,
+                            model = when {
+                                device.isForceAcknowledged.value -> R.drawable.icon_normal_new
+                                device.isActive.value && !device.acknowledged.value -> R.drawable.icon_alert
+                                else -> R.drawable.icon_normal_new
+                            },
                             contentDescription = null,
                             modifier = Modifier
                                 .size(device.size.value.dp)
-                                .alpha(flashAlpha.value)
+                                .alpha(if (device.isForceAcknowledged.value) 0.4f else flashAlpha.value)
                         )
+                        // Overridden indicator
+                        if (device.isForceAcknowledged.value) {
+                            Text(
+                                text = "⚠ OVERRIDE",
+                                color = Color(0xFFF59E0B),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                         Text(
                             text = device.name.value,
                             color = if (device.labelColor.value == "black") Color.Black else Color.White,
@@ -717,27 +739,31 @@ fun MainScreen(viewModel: DeviceViewModel) {
                             if (unlockLayout) {
                                 detectDragGestures { change, dragAmount ->
                                     change.consumeAllChanges()
-
-                                    // Calculate new position
                                     val newX = device.x.value + dragAmount.x
                                     val newY = device.y.value + dragAmount.y
-
-                                    // Get device icon size
                                     val iconSize = device.size.value
-
-                                    // Constrain within screen bounds
                                     device.x.value = newX.coerceIn(0f, screenWidth - iconSize)
-                                    device.y.value = newY.coerceIn(0f, screenHeight - iconSize - 72f) // 72f accounts for top bar
-
+                                    device.y.value = newY.coerceIn(0f, screenHeight - iconSize - 72f)
                                     viewModel.saveDeviceStates()
                                 }
+                            }
+                        }
+                        .pointerInput(device.isActive.value, device.isForceAcknowledged.value, unlockLayout) {
+                            // 10-second hold to force-acknowledge a stuck active device
+                            if (device.isActive.value && !device.isForceAcknowledged.value && !unlockLayout) {
+                                detectTapGestures(
+                                    onLongPress = {
+                                        // Long press detected — start 10s countdown via coroutine in ViewModel
+                                        viewModel.startForceAcknowledgeCountdown(device.id)
+                                    }
+                                )
                             }
                         }
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         val flashAlpha = remember { Animatable(1f) }
                         LaunchedEffect(device.isActive.value, device.acknowledged.value) {
-                            if (device.isActive.value && !device.acknowledged.value) {
+                            if (device.isActive.value && !device.acknowledged.value && !device.isForceAcknowledged.value) {
                                 while (true) {
                                     flashAlpha.animateTo(0.3f)
                                     flashAlpha.animateTo(1f)
@@ -747,23 +773,46 @@ fun MainScreen(viewModel: DeviceViewModel) {
                             }
                         }
 
-                        AsyncImage(
-                            model = if (device.isActive.value && !device.acknowledged.value)
-                                R.drawable.icon_alert else R.drawable.icon_normal_new,
-                            contentDescription = null,
-                            modifier = Modifier
-                                .size(device.size.value.dp)
-                                .alpha(flashAlpha.value)
-                        )
+                        val forceAckProgress = viewModel.forceAckProgress[device.id] ?: 0f
+
+                        Box(contentAlignment = Alignment.Center) {
+                            AsyncImage(
+                                model = when {
+                                    device.isForceAcknowledged.value -> R.drawable.icon_normal_new
+                                    device.isActive.value && !device.acknowledged.value -> R.drawable.icon_alert
+                                    else -> R.drawable.icon_normal_new
+                                },
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .size(device.size.value.dp)
+                                    .alpha(if (device.isForceAcknowledged.value) 0.4f else flashAlpha.value)
+                            )
+                            if (forceAckProgress > 0f) {
+                                CircularProgressIndicator(
+                                    progress = forceAckProgress,
+                                    modifier = Modifier.size(device.size.value.dp),
+                                    color = Color(0xFFF59E0B),
+                                    strokeWidth = 3.dp
+                                )
+                            }
+                        }
+                        if (device.isForceAcknowledged.value) {
+                            Text(
+                                text = "⚠ OVERRIDE",
+                                color = Color(0xFFF59E0B),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                         Text(
                             text = device.name.value,
                             color = if (device.labelColor.value == "black") Color.Black else Color.White,
                             fontSize = (device.size.value / 5).coerceAtLeast(10f).sp
                         )
 
-                        if (device.isActive.value && device.cameraEnabled.value && device.streamUrl.value.isNotEmpty()) {
+                        if (device.isActive.value && !device.isForceAcknowledged.value &&
+                            device.cameraEnabled.value && device.streamUrl.value.isNotEmpty()) {
                             var showPopup by remember { mutableStateOf(true) }
-
                             if (showPopup) {
                                 CameraPreviewPopup(
                                     streamUrl = device.streamUrl.value,
@@ -771,9 +820,7 @@ fun MainScreen(viewModel: DeviceViewModel) {
                                         fullscreenUrl = device.streamUrl.value
                                         showFullscreen = true
                                     },
-                                    onClose = {
-                                        showPopup = false
-                                    }
+                                    onClose = { showPopup = false }
                                 )
                             }
                         }
@@ -792,6 +839,10 @@ fun MainScreen(viewModel: DeviceViewModel) {
 
         // Bottom Reset Button
         if (!showFullscreen) {
+            val resetScope = rememberCoroutineScope()
+            var resetHoldProgress by remember { mutableStateOf(0f) }
+            var resetHoldJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -799,29 +850,62 @@ fun MainScreen(viewModel: DeviceViewModel) {
                     .padding(horizontal = 50.dp, vertical = 24.dp)
                     .zIndex(5f)
             ) {
-                Button(
-                    onClick = { viewModel.resetAlerts() },
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(56.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        backgroundColor = resetButtonColor,
-                        contentColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(28.dp),
-                    elevation = ButtonDefaults.elevation(
-                        defaultElevation = 8.dp,
-                        pressedElevation = 12.dp
-                    )
+                        .height(56.dp)
+                        .pointerInput(criticalAlert) {
+                            if (criticalAlert) {
+                                detectTapGestures(
+                                    onLongPress = {
+                                        resetHoldJob = resetScope.launch {
+                                            val startTime = System.currentTimeMillis()
+                                            val holdDuration = 10_000L
+                                            while (System.currentTimeMillis() - startTime < holdDuration) {
+                                                resetHoldProgress = (System.currentTimeMillis() - startTime) / holdDuration.toFloat()
+                                                delay(50)
+                                            }
+                                            resetHoldProgress = 0f
+                                            viewModel.silenceCriticalBeep()
+                                        }
+                                    },
+                                    onTap = {
+                                        resetHoldJob?.cancel()
+                                        resetHoldProgress = 0f
+                                    }
+                                )
+                            }
+                        }
                 ) {
-                    Row(
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
+                    Button(
+                        onClick = { viewModel.resetAlerts() },
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            backgroundColor = resetButtonColor,
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(28.dp),
+                        elevation = ButtonDefaults.elevation(defaultElevation = 8.dp, pressedElevation = 12.dp)
                     ) {
                         Text(
-                            text = "Reset",
+                            text = if (resetHoldProgress > 0f)
+                                "Hold to silence… ${((1f - resetHoldProgress) * 10).toInt() + 1}s"
+                            else "Reset",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    // Progress bar grows along bottom of button during hold
+                    if (resetHoldProgress > 0f) {
+                        LinearProgressIndicator(
+                            progress = resetHoldProgress,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp)
+                                .align(Alignment.BottomCenter)
+                                .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp)),
+                            color = Color.White,
+                            backgroundColor = Color.White.copy(alpha = 0.3f)
                         )
                     }
                 }

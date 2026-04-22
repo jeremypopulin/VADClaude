@@ -318,6 +318,7 @@ class DeviceViewModel : ViewModel() {
 
                 if (_criticalAlert.value) {
                     _criticalAlert.value = false
+                    stopBeeperSafely()
                     logEvent("ℹ️ Connection to ${source.displayName} restored")
                 }
 
@@ -329,6 +330,10 @@ class DeviceViewModel : ViewModel() {
                 if (timeOffline >= 2 * 60 * 1000L && !_criticalAlert.value) {
                     _criticalAlert.value = true
                     logEvent("❌ Connection to ${source.displayName} lost (2+ minutes)")
+                    // Start beeping to alert operator of connection loss
+                    if (beepPlayer == null || beepPlayer?.isPlaying == false) {
+                        beepPlayer = repository.playCriticalBeep(beepPlayer)
+                    }
                 }
 
                 // Back-off before retrying to avoid hammering offline devices
@@ -412,7 +417,16 @@ class DeviceViewModel : ViewModel() {
                 rawValue == 1
             }
 
-            if (isNowActive && !device.isActive.value) {
+            // Auto-clear force-acknowledge when input restores to inactive
+            if (device.isForceAcknowledged.value && !isNowActive) {
+                device.isForceAcknowledged.value = false
+                device.isActive.value = false
+                device.acknowledged.value = true
+                logEvent("✅ ${device.name.value} override cleared — input restored")
+            }
+
+            // Only trigger if not force-acknowledged
+            if (isNowActive && !device.isActive.value && !device.isForceAcknowledged.value) {
                 device.isActive.value = true
                 device.acknowledged.value = false
 
@@ -428,7 +442,8 @@ class DeviceViewModel : ViewModel() {
                 }
             }
 
-            if (device.isActive.value && !device.acknowledged.value) {
+            // Count as active only if not force-acknowledged
+            if (device.isActive.value && !device.acknowledged.value && !device.isForceAcknowledged.value) {
                 anyUnacknowledgedActive = true
             }
         }
@@ -452,7 +467,7 @@ class DeviceViewModel : ViewModel() {
 
             // Only allow reset if all mapped inputs are currently inactive
             val allInactive = currentInputs.values.all { it == 0 }
-            if (!allInactive) {
+            if (!allInactive && !_criticalAlert.value) {
                 Toast.makeText(contextRef, "❗ All devices must be OFF before resetting.", Toast.LENGTH_LONG).show()
                 return
             }
@@ -841,6 +856,66 @@ class DeviceViewModel : ViewModel() {
                 }
             }
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Manual overrides
+    // -------------------------------------------------------------------------
+
+    // Map of deviceId -> hold progress (0f-1f) for UI feedback
+    private val _forceAckProgress = mutableStateMapOf<Int, Float>()
+    val forceAckProgress: Map<Int, Float> = _forceAckProgress
+
+    private val forceAckJobs = mutableMapOf<Int, Job>()
+
+    /**
+     * Start a 10-second countdown to force-acknowledge a device.
+     * Progress is exposed via forceAckProgress for UI feedback.
+     * If finger releases before 10s the countdown cancels.
+     */
+    fun startForceAcknowledgeCountdown(deviceId: Int) {
+        forceAckJobs[deviceId]?.cancel()
+        forceAckJobs[deviceId] = viewModelScope.launch {
+            val startTime = System.currentTimeMillis()
+            val holdDuration = 10_000L
+            while (System.currentTimeMillis() - startTime < holdDuration) {
+                _forceAckProgress[deviceId] = (System.currentTimeMillis() - startTime) / holdDuration.toFloat()
+                delay(50)
+            }
+            _forceAckProgress.remove(deviceId)
+            forceAcknowledgeDevice(deviceId)
+        }
+    }
+
+    fun cancelForceAcknowledgeCountdown(deviceId: Int) {
+        forceAckJobs[deviceId]?.cancel()
+        _forceAckProgress.remove(deviceId)
+    }
+
+    /**
+     * Force-acknowledge a device that is stuck active due to a hardware fault.
+     * The device is silenced immediately. Override automatically clears when
+     * the input restores to inactive.
+     */
+    fun forceAcknowledgeDevice(deviceId: Int) {
+        val device = deviceStates.find { it.id == deviceId } ?: return
+        device.isForceAcknowledged.value = true
+        device.acknowledged.value = true
+        logEvent("⚠️ ${device.name.value} manually overridden — input still active")
+        // Check if any unacknowledged alarms remain — stop beep if none
+        val anyRemaining = deviceStates.any {
+            it.isActive.value && !it.acknowledged.value && !it.isForceAcknowledged.value
+        }
+        if (!anyRemaining) stopBeeperSafely()
+    }
+
+    /**
+     * Silence the connection lost beep without clearing the critical alert.
+     * The banner remains visible — only the beep is stopped.
+     */
+    fun silenceCriticalBeep() {
+        stopBeeperSafely()
+        logEvent("🔕 Connection alert beep silenced manually")
     }
 
     // -------------------------------------------------------------------------

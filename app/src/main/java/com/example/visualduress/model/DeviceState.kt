@@ -16,9 +16,13 @@ data class DeviceState(
     var cameraEnabled: MutableState<Boolean> = mutableStateOf(false),
     var smsEnabled: MutableState<Boolean> = mutableStateOf(false),
     var labelColor: MutableState<String> = mutableStateOf("white"),
-    // When true: only trigger on Inception alarm state (area must be armed)
-    // When false: trigger on any input activity (unsealed/active)
-    var alarmStateOnly: MutableState<Boolean> = mutableStateOf(false)
+    var alarmStateOnly: MutableState<Boolean> = mutableStateOf(false),
+    /**
+     * Force-acknowledged by operator via 10s long press.
+     * Device is silenced even though input is still active.
+     * Automatically clears when the input restores to inactive.
+     */
+    var isForceAcknowledged: MutableState<Boolean> = mutableStateOf(false)
 ) {
     fun toSerializable(): SerializableDeviceState {
         return SerializableDeviceState(
@@ -36,6 +40,7 @@ data class DeviceState(
             smsEnabled = smsEnabled.value,
             labelColor = labelColor.value,
             alarmStateOnly = alarmStateOnly.value
+            // isForceAcknowledged is NOT persisted — always resets on app restart
         )
     }
 
@@ -56,6 +61,7 @@ data class DeviceState(
                 smsEnabled = mutableStateOf(data.smsEnabled),
                 labelColor = mutableStateOf(data.labelColor),
                 alarmStateOnly = mutableStateOf(data.alarmStateOnly)
+                // isForceAcknowledged defaults to false on load
             )
         }
     }

@@ -13,8 +13,8 @@ android {
         applicationId = "com.example.visualduress"
         minSdk = 24
         targetSdk = 35
-        versionCode = 275
-        versionName = "2.7.5"
+        versionCode = 301
+        versionName = "3.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
