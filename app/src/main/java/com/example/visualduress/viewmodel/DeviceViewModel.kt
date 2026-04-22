@@ -318,7 +318,6 @@ class DeviceViewModel : ViewModel() {
 
                 if (_criticalAlert.value) {
                     _criticalAlert.value = false
-                    stopBeeperSafely()
                     logEvent("ℹ️ Connection to ${source.displayName} restored")
                 }
 
@@ -330,9 +329,18 @@ class DeviceViewModel : ViewModel() {
                 if (timeOffline >= 2 * 60 * 1000L && !_criticalAlert.value) {
                     _criticalAlert.value = true
                     logEvent("❌ Connection to ${source.displayName} lost (2+ minutes)")
-                    // Start beeping to alert operator of connection loss
-                    if (beepPlayer == null || beepPlayer?.isPlaying == false) {
-                        beepPlayer = repository.playCriticalBeep(beepPlayer)
+                    // Play a single non-looping beep — just alert the operator once
+                    contextRef?.let { ctx ->
+                        try {
+                            val player = MediaPlayer.create(ctx, R.raw.beep)
+                            player?.apply {
+                                isLooping = false
+                                setOnCompletionListener { release() }
+                                start()
+                            }
+                        } catch (e: Exception) {
+                            Log.e("ViewModel", "Could not play connection alert beep: ${e.message}")
+                        }
                     }
                 }
 
@@ -464,10 +472,8 @@ class DeviceViewModel : ViewModel() {
     fun resetAlerts() {
         try {
             val currentInputs = inputs.value
-
-            // Only allow reset if all mapped inputs are currently inactive
             val allInactive = currentInputs.values.all { it == 0 }
-            if (!allInactive && !_criticalAlert.value) {
+            if (!allInactive) {
                 Toast.makeText(contextRef, "❗ All devices must be OFF before resetting.", Toast.LENGTH_LONG).show()
                 return
             }
@@ -476,16 +482,16 @@ class DeviceViewModel : ViewModel() {
                 if (it.isActive.value || !it.acknowledged.value) {
                     it.isActive.value = false
                     it.acknowledged.value = true
+                    it.isForceAcknowledged.value = false
                     logEvent("✅ ${it.name.value} manually reset")
                 }
             }
 
-            stopBeeperSafely()
+            // Only stop beep if no force-acknowledged devices still active
+            val anyFaultRemaining = deviceStates.any { it.isForceAcknowledged.value }
+            if (!anyFaultRemaining) stopBeeperSafely()
 
-            if (_criticalAlert.value) {
-                _criticalAlert.value = false
-                logEvent("🔕 Critical alert cleared")
-            }
+            // Do NOT clear criticalAlert — connection lost banner stays until connection restores
 
         } catch (e: Exception) {
             Log.e("ResetError", "Reset error: ${e.message}", e)
@@ -910,12 +916,12 @@ class DeviceViewModel : ViewModel() {
     }
 
     /**
-     * Silence the connection lost beep without clearing the critical alert.
-     * The banner remains visible — only the beep is stopped.
+     * Silence the connection lost beep via 10s hold on Reset.
+     * The banner stays visible until connection actually restores.
      */
     fun silenceCriticalBeep() {
         stopBeeperSafely()
-        logEvent("🔕 Connection alert beep silenced manually")
+        logEvent("🔕 Connection beep silenced manually")
     }
 
     // -------------------------------------------------------------------------
