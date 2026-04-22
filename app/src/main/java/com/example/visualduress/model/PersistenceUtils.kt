@@ -3,11 +3,25 @@ package com.example.visualduress.model
 import com.example.visualduress.model.toDeviceState
 import android.content.Context
 import android.net.Uri
+import android.util.Base64
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import java.security.MessageDigest
 
 const val DEFAULT_PASSWORD = "admin"
-const val MASTER_PASSWORD = "JBP23!"
+
+// Master password is stored as a hash — never as plain text.
+// Verification hashes the entered value and compares to this.
+private const val MASTER_PASSWORD_HASH = "q8vOKHVcSn2RjOCx"
+
+private fun hashPassword(input: String): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    val hash = digest.digest(input.toByteArray(Charsets.UTF_8))
+    return Base64.encodeToString(hash, Base64.NO_WRAP).take(16)
+}
+
+fun verifyMasterPassword(input: String): Boolean =
+    hashPassword(input) == MASTER_PASSWORD_HASH
 
 fun savePassword(context: Context, password: String) {
     context.getSharedPreferences("duress_prefs", Context.MODE_PRIVATE)

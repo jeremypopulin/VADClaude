@@ -859,7 +859,7 @@ class DeviceViewModel : ViewModel() {
     fun hidePasswordPrompt() { _passwordPromptVisible.value = false }
 
     fun verifyPassword(input: String) {
-        if (input == currentPassword || input == MASTER_PASSWORD) {
+        if (input == currentPassword || verifyMasterPassword(input)) {
             _passwordPromptVisible.value = false
             pendingAction?.invoke()
         } else {
