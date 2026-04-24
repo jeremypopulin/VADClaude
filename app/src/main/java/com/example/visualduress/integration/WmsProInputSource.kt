@@ -383,6 +383,12 @@ class WmsProInputSource(
         devicesDiscovered = false
         Log.d("WmsPro", "Discovery reset")
     }
+
+    fun clearToken() {
+        accessToken = null
+        tokenExpiryMs = 0L
+        Log.d("WmsPro", "Token cleared — will re-authenticate on next poll")
+    }
 }
 
 data class WmsProDeviceInfo(

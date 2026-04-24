@@ -819,10 +819,12 @@ private fun WmsProConnectionConfig(viewModel: DeviceViewModel, context: Context)
     val config = viewModel.wmsProConfig
     var showPassword by remember { mutableStateOf(false) }
     IpSectionHeader("WMS Pro Controller",
-        "Enter the IP address of your WMS Pro server and the credentials of a WMS Pro External API Operator.")
-    IpTextField("Host / IP Address", config.host.value, { viewModel.updateWmsProHost(it) }, "192.168.0.100")
+        "Enter the WMS Pro server address, External API Operator credentials, and the API key from Configuration → External APIs.")
+    IpTextField("Host / IP Address", config.host.value, { viewModel.updateWmsProHost(it) }, "192.168.1.7")
     Spacer(modifier = Modifier.height(10.dp))
-    IpTextField("Username", config.username.value, { viewModel.updateWmsProUsername(it) }, "api_user")
+    IpTextField("Username", config.username.value, { viewModel.updateWmsProUsername(it) }, "API")
+    Spacer(modifier = Modifier.height(10.dp))
+    IpTextField("API Key", config.apiKey.value, { viewModel.updateWmsProApiKey(it) }, "sQ4ndwiLkpCLy2fEcDoSAqQLfqfgIxFT")
     Spacer(modifier = Modifier.height(10.dp))
     OutlinedTextField(
         value = config.password.value,

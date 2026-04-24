@@ -724,6 +724,7 @@ class DeviceViewModel : ViewModel() {
     fun updateWmsProHost(value: String)        { wmsProConfig.host.value = value }
     fun updateWmsProUsername(value: String)     { wmsProConfig.username.value = value }
     fun updateWmsProPassword(value: String)     { wmsProConfig.password.value = value }
+    fun updateWmsProApiKey(value: String)       { wmsProConfig.apiKey.value = value }
 
     fun updateWmsProDeviceMapping(uid: String, slotId: Int?) {
         val current = wmsProConfig.deviceMappings.value.toMutableMap()
@@ -738,7 +739,11 @@ class DeviceViewModel : ViewModel() {
     fun saveWmsProConfig(context: Context) {
         val prefs = context.getSharedPreferences("wmspro_config", Context.MODE_PRIVATE)
         prefs.edit().putString("config", Json.encodeToString(wmsProConfig.toSerializable())).apply()
-        (activeInputSource as? WmsProInputSource)?.resetDiscovery()
+        // Force re-authentication with new credentials
+        (activeInputSource as? WmsProInputSource)?.also {
+            it.clearToken()
+            it.resetDiscovery()
+        }
     }
 
     private fun loadWmsProConfig(context: Context) {
