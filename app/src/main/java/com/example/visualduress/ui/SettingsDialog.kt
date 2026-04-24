@@ -80,7 +80,7 @@ fun SettingsDialog(
 
     val companyName = remember { loadCompanyName(context) }
     val websiteUrl = remember { loadWebsiteUrl(context) }
-    val appVersion = com.example.visualduress.BuildConfig.VERSION_NAME
+    val appVersion = remember { loadAppVersion(context) }
 
     var licenseKey by remember { mutableStateOf("") }
     val deviceId = remember { LicenseManager.getDeviceId(context) }
@@ -429,6 +429,31 @@ fun DeviceSettingsContent(viewModel: DeviceViewModel, isBasic: Boolean) {
                                 enabled = !isBasic,
                                 colors = SwitchDefaults.colors(checkedThumbColor = DarkBlue, checkedTrackColor = Color.White, uncheckedThumbColor = Color.White, uncheckedTrackColor = Color.Black)
                             )
+                        }
+                        // Show camera icon on floor plan — only visible when camera is enabled
+                        if (device.cameraEnabled.value && !isBasic) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Show Camera Icon on Floor Plan", color = TextPrimary)
+                                    Text(
+                                        "Tap the camera icon on the floor plan to view live stream at any time",
+                                        fontSize = 11.sp,
+                                        color = TextSecondary.copy(alpha = 0.7f),
+                                        lineHeight = 15.sp
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Switch(
+                                    checked = device.showCameraIcon.value,
+                                    onCheckedChange = { device.showCameraIcon.value = it; viewModel.saveDeviceStates() },
+                                    colors = SwitchDefaults.colors(checkedThumbColor = DarkBlue, checkedTrackColor = Color.White, uncheckedThumbColor = Color.White, uncheckedTrackColor = Color.Black)
+                                )
+                            }
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(

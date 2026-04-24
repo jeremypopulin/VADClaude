@@ -7,6 +7,8 @@ import android.util.Log
 import com.example.visualduress.R
 import com.example.visualduress.model.DeviceState
 import com.example.visualduress.model.SerializableDeviceState
+import com.example.visualduress.model.toSerializable
+import com.example.visualduress.model.toDeviceState
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
@@ -34,7 +36,7 @@ class DeviceRepository(private val context: Context) {
         return@withContext try {
             val type = object : TypeToken<List<SerializableDeviceState>>() {}.type
             val list = gson.fromJson<List<SerializableDeviceState>>(json, type)
-            list.map { DeviceState.fromSerializable(it) }
+            list.map { it.toDeviceState() }
         } catch (e: Exception) {
             Log.e("DeviceRepo", "Failed to parse device states", e)
             emptyList()

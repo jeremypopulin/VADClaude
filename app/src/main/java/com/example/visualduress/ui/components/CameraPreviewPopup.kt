@@ -26,12 +26,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
-
-import com.example.visualduress.ui.theme.TextPrimary
-import com.example.visualduress.ui.theme.PreviewBackground
-import com.example.visualduress.ui.theme.PreviewBorder
 import com.example.visualduress.ui.theme.AccentOrange
-
+import com.example.visualduress.ui.theme.PreviewBackground
+import com.example.visualduress.ui.theme.TextPrimary
 
 @Composable
 fun CameraPreviewPopup(
@@ -40,9 +37,32 @@ fun CameraPreviewPopup(
     onTap: () -> Unit
 ) {
     val context = LocalContext.current
+
+    // Use sub stream for the small popup — less bandwidth, faster to load
+    val previewUrl = remember(streamUrl) {
+        when {
+            "realmonitor" in streamUrl ->
+                streamUrl.replace(Regex("subtype=\\d"), "subtype=1")
+            "Streaming/Channels" in streamUrl ->
+                streamUrl.replace(Regex("(\\d)(0)(1)$"), "$10${"2"}")
+            "h264Preview" in streamUrl ->
+                streamUrl.replace("_main", "_sub")
+            "profile" in streamUrl && "media.smp" in streamUrl ->
+                streamUrl.replace(Regex("profile\\d+"), "profile2")
+            "tcp/av0" in streamUrl ->
+                streamUrl.replace(Regex("av0_(\\d+)_0")) { mr -> "av0_${mr.groupValues[1]}_1" }
+            else -> streamUrl
+        }
+    }
+
     val player = remember {
         ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(Uri.parse(streamUrl)))
+            setMediaItem(
+                MediaItem.Builder()
+                    .setUri(Uri.parse(previewUrl))
+                    .setMimeType("application/x-rtsp")
+                    .build()
+            )
             playWhenReady = true
             prepare()
         }
@@ -53,136 +73,43 @@ fun CameraPreviewPopup(
     }
 
     Surface(
-        modifier = Modifier
-            .width(320.dp)
-            .height(200.dp),
+        modifier = Modifier.width(320.dp).height(200.dp),
         shape = RoundedCornerShape(16.dp),
         elevation = 8.dp,
         color = PreviewBackground
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clickable { onTap() }
-        ) {
-            // Video Player
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(8.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color.Black)
-            ) {
-                AndroidView(
-                    factory = {
-                        PlayerView(it).apply {
-                            this.player = player
-                            useController = false
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
-
-                // Play indicator overlay (subtle hint to tap for fullscreen)
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.2f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Surface(
-                        color = AccentOrange.copy(alpha = 0.8f),
-                        shape = CircleShape,
-                        modifier = Modifier.size(48.dp)
-                    ) {
+        Box(modifier = Modifier.fillMaxSize().clickable { onTap() }) {
+            Box(modifier = Modifier.fillMaxSize().padding(8.dp).clip(RoundedCornerShape(12.dp)).background(Color.Black)) {
+                AndroidView(factory = { PlayerView(it).apply { this.player = player; useController = false } },
+                    modifier = Modifier.fillMaxSize())
+                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center) {
+                    Surface(color = AccentOrange.copy(alpha = 0.8f), shape = CircleShape, modifier = Modifier.size(48.dp)) {
                         Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                Icons.Filled.PlayArrow,
-                                contentDescription = "Tap to view fullscreen",
-                                tint = Color.White,
-                                modifier = Modifier.size(28.dp)
-                            )
+                            Icon(Icons.Filled.PlayArrow, "Tap to view fullscreen", tint = Color.White, modifier = Modifier.size(28.dp))
                         }
                     }
                 }
             }
-
-            // Close Button
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(12.dp),
-                shape = CircleShape,
-                color = Color.Black.copy(alpha = 0.6f),
-                elevation = 4.dp
-            ) {
-                IconButton(
-                    onClick = { onClose() },
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Close",
-                        tint = TextPrimary,
-                        modifier = Modifier.size(20.dp)
-                    )
+            Surface(modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+                shape = CircleShape, color = Color.Black.copy(alpha = 0.6f), elevation = 4.dp) {
+                IconButton(onClick = onClose, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.Close, "Close", tint = TextPrimary, modifier = Modifier.size(20.dp))
                 }
             }
-
-            // "Live" indicator
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(12.dp),
-                shape = RoundedCornerShape(8.dp),
-                color = Color.Red.copy(alpha = 0.8f)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    // Pulsing dot
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .background(Color.White, CircleShape)
-                    )
-                    Text(
-                        "LIVE",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
+            Surface(modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
+                shape = RoundedCornerShape(8.dp), color = Color.Red.copy(alpha = 0.8f)) {
+                Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Box(modifier = Modifier.size(8.dp).background(Color.White, CircleShape))
+                    Text("LIVE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 }
             }
-
-            // Bottom gradient for better text visibility
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .height(40.dp)
-                    .background(
-                        androidx.compose.ui.graphics.Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                Color.Black.copy(alpha = 0.6f)
-                            )
-                        )
-                    )
-            )
-
-            // Tap to expand hint
-            Text(
-                "Tap to expand",
-                fontSize = 11.sp,
-                color = TextPrimary.copy(alpha = 0.8f),
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 12.dp)
-            )
+            Box(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(40.dp)
+                .background(androidx.compose.ui.graphics.Brush.verticalGradient(
+                    colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f)))))
+            Text("Tap to expand", fontSize = 11.sp, color = TextPrimary.copy(alpha = 0.8f),
+                fontWeight = FontWeight.Medium, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp))
         }
     }
 }

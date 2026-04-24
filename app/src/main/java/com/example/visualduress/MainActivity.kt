@@ -21,6 +21,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        onBackPressedDispatcher.addCallback(this, backCallback)
 
         // Initialize ViewModel with application context
         viewModel.initWith(applicationContext)
@@ -51,8 +52,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onBackPressed() {
-        super.onBackPressed()
-        // BLOCK BACK
+    // Block back button using the modern OnBackPressedDispatcher
+    private val backCallback = object : androidx.activity.OnBackPressedCallback(true) {
+        override fun handleOnBackPressed() {
+            // Do nothing — back button blocked in kiosk mode
+        }
     }
 }

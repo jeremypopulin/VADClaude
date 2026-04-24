@@ -16,7 +16,8 @@ data class SerializableDeviceState(
     val cameraEnabled: Boolean,
     val smsEnabled: Boolean,
     val labelColor: String = "white",
-    val alarmStateOnly: Boolean = false   // default false keeps existing saved data compatible
+    val alarmStateOnly: Boolean = false,
+    val showCameraIcon: Boolean = false
 )
 
 fun DeviceState.toSerializable(): SerializableDeviceState {
@@ -34,7 +35,9 @@ fun DeviceState.toSerializable(): SerializableDeviceState {
         cameraEnabled = cameraEnabled.value,
         smsEnabled = smsEnabled.value,
         labelColor = labelColor.value,
-        alarmStateOnly = alarmStateOnly.value
+        alarmStateOnly = alarmStateOnly.value,
+        showCameraIcon = showCameraIcon.value
+        // isForceAcknowledged not persisted
     )
 }
 
@@ -53,6 +56,8 @@ fun SerializableDeviceState.toDeviceState(): DeviceState {
         cameraEnabled = mutableStateOf(cameraEnabled),
         smsEnabled = mutableStateOf(smsEnabled),
         labelColor = mutableStateOf(labelColor),
-        alarmStateOnly = mutableStateOf(alarmStateOnly)
+        alarmStateOnly = mutableStateOf(alarmStateOnly),
+        showCameraIcon = mutableStateOf(showCameraIcon)
+        // isForceAcknowledged defaults to false on load
     )
 }

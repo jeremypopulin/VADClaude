@@ -17,52 +17,13 @@ data class DeviceState(
     var smsEnabled: MutableState<Boolean> = mutableStateOf(false),
     var labelColor: MutableState<String> = mutableStateOf("white"),
     var alarmStateOnly: MutableState<Boolean> = mutableStateOf(false),
+    /** Show a camera icon next to the device on the floor plan for manual live view */
+    var showCameraIcon: MutableState<Boolean> = mutableStateOf(false),
     /**
      * Force-acknowledged by operator via 10s long press.
      * Device is silenced even though input is still active.
      * Automatically clears when the input restores to inactive.
+     * NOT persisted — always resets to false on app restart.
      */
     var isForceAcknowledged: MutableState<Boolean> = mutableStateOf(false)
-) {
-    fun toSerializable(): SerializableDeviceState {
-        return SerializableDeviceState(
-            id = id,
-            name = name.value,
-            x = x.value,
-            y = y.value,
-            size = size.value,
-            isEnabled = isEnabled.value,
-            isActive = isActive.value,
-            acknowledged = acknowledged.value,
-            isLicensed = isLicensed.value,
-            streamUrl = streamUrl.value,
-            cameraEnabled = cameraEnabled.value,
-            smsEnabled = smsEnabled.value,
-            labelColor = labelColor.value,
-            alarmStateOnly = alarmStateOnly.value
-            // isForceAcknowledged is NOT persisted — always resets on app restart
-        )
-    }
-
-    companion object {
-        fun fromSerializable(data: SerializableDeviceState): DeviceState {
-            return DeviceState(
-                id = data.id,
-                name = mutableStateOf(data.name),
-                x = mutableStateOf(data.x),
-                y = mutableStateOf(data.y),
-                size = mutableStateOf(data.size),
-                isEnabled = mutableStateOf(data.isEnabled),
-                isActive = mutableStateOf(data.isActive),
-                acknowledged = mutableStateOf(data.acknowledged),
-                isLicensed = mutableStateOf(data.isLicensed),
-                streamUrl = mutableStateOf(data.streamUrl),
-                cameraEnabled = mutableStateOf(data.cameraEnabled),
-                smsEnabled = mutableStateOf(data.smsEnabled),
-                labelColor = mutableStateOf(data.labelColor),
-                alarmStateOnly = mutableStateOf(data.alarmStateOnly)
-                // isForceAcknowledged defaults to false on load
-            )
-        }
-    }
-}
+)

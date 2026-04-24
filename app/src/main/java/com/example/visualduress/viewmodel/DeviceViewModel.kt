@@ -35,7 +35,9 @@ class DeviceViewModel : ViewModel() {
 
     private lateinit var repository: DeviceRepository
     private var contextRef: Context? = null
-    private var beepPlayer: MediaPlayer? = null
+    private var beepPlayer: MediaPlayer? = null          // device alarm beep
+    private var connectionBeepPlayer: MediaPlayer? = null  // connection lost beep
+    private var connectionBeepSilenced = false            // true after 10s hold silence
     private var currentPassword = DEFAULT_PASSWORD
     private var pendingAction: (() -> Unit)? = null
 
@@ -318,6 +320,8 @@ class DeviceViewModel : ViewModel() {
 
                 if (_criticalAlert.value) {
                     _criticalAlert.value = false
+                    connectionBeepSilenced = false  // reset silenced flag on reconnect
+                    stopConnectionBeepSafely()
                     logEvent("ℹ️ Connection to ${source.displayName} restored")
                 }
 
@@ -329,19 +333,11 @@ class DeviceViewModel : ViewModel() {
                 if (timeOffline >= 2 * 60 * 1000L && !_criticalAlert.value) {
                     _criticalAlert.value = true
                     logEvent("❌ Connection to ${source.displayName} lost (2+ minutes)")
-                    // Play a single non-looping beep — just alert the operator once
-                    contextRef?.let { ctx ->
-                        try {
-                            val player = MediaPlayer.create(ctx, R.raw.beep)
-                            player?.apply {
-                                isLooping = false
-                                setOnCompletionListener { release() }
-                                start()
-                            }
-                        } catch (e: Exception) {
-                            Log.e("ViewModel", "Could not play connection alert beep: ${e.message}")
-                        }
-                    }
+                }
+                // Keep connection beep alive while connection is lost — unless manually silenced
+                if (_criticalAlert.value && !connectionBeepSilenced &&
+                    (connectionBeepPlayer == null || connectionBeepPlayer?.isPlaying == false)) {
+                    connectionBeepPlayer = repository.playCriticalBeep(connectionBeepPlayer)
                 }
 
                 // Back-off before retrying to avoid hammering offline devices
@@ -472,7 +468,24 @@ class DeviceViewModel : ViewModel() {
     fun resetAlerts() {
         try {
             val currentInputs = inputs.value
-            val allInactive = currentInputs.values.all { it == 0 }
+            val isInception = _inputSourceType.value == InputSourceType.INCEPTION
+            val isWmsPro = _inputSourceType.value == InputSourceType.WMS_PRO
+
+            // For Inception/WMS Pro check if any device is actually still active
+            // rather than checking raw input values (which are bitmasks not 0/1)
+            val allInactive = if (isInception || isWmsPro) {
+                deviceStates.none { device ->
+                    val rawValue = currentInputs[device.id] ?: 0
+                    if (isWmsPro) {
+                        rawValue in setOf(3, 9, 11, 20, 37, 123, 173, 177, 195, 217)
+                    } else {
+                        (rawValue and (1 or 2 or 8 or 2048)) != 0
+                    }
+                }
+            } else {
+                currentInputs.values.all { it == 0 }
+            }
+
             if (!allInactive) {
                 Toast.makeText(contextRef, "❗ All devices must be OFF before resetting.", Toast.LENGTH_LONG).show()
                 return
@@ -487,9 +500,8 @@ class DeviceViewModel : ViewModel() {
                 }
             }
 
-            // Only stop beep if no force-acknowledged devices still active
-            val anyFaultRemaining = deviceStates.any { it.isForceAcknowledged.value }
-            if (!anyFaultRemaining) stopBeeperSafely()
+            // Stop device alarm beep — never touches connection beep
+            stopBeeperSafely()
 
             // Do NOT clear criticalAlert — connection lost banner stays until connection restores
 
@@ -508,6 +520,19 @@ class DeviceViewModel : ViewModel() {
             beepPlayer = null
         } catch (e: Exception) {
             Log.e("Beeper", "Error stopping beeper: ${e.message}", e)
+        }
+    }
+
+    private fun stopConnectionBeepSafely() {
+        try {
+            connectionBeepPlayer?.let { player ->
+                if (player.isPlaying) player.stop()
+                player.reset()
+                player.release()
+            }
+            connectionBeepPlayer = null
+        } catch (e: Exception) {
+            Log.e("Beeper", "Error stopping connection beeper: ${e.message}", e)
         }
     }
 
@@ -920,7 +945,8 @@ class DeviceViewModel : ViewModel() {
      * The banner stays visible until connection actually restores.
      */
     fun silenceCriticalBeep() {
-        stopBeeperSafely()
+        connectionBeepSilenced = true
+        stopConnectionBeepSafely()
         logEvent("🔕 Connection beep silenced manually")
     }
 

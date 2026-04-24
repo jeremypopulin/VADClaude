@@ -189,7 +189,7 @@ fun MainScreen(viewModel: DeviceViewModel) {
                     .pointerInput(unlockLayout) {
                         if (unlockLayout) {
                             detectDragGestures { change, dragAmount ->
-                                change.consumeAllChanges()
+                                change.consume()
                                 device.x.value += dragAmount.x
                                 device.y.value += dragAmount.y
                                 viewModel.saveDeviceStates()
@@ -315,6 +315,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -336,7 +337,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.consumeAllChanges
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -657,7 +657,7 @@ fun MainScreen(viewModel: DeviceViewModel) {
                         .pointerInput(unlockLayout) {
                             if (unlockLayout) {
                                 detectDragGestures { change, dragAmount ->
-                                    change.consumeAllChanges()
+                                    change.consume()
                                     device.x.value += dragAmount.x
                                     device.y.value += dragAmount.y
                                     viewModel.saveDeviceStates()
@@ -738,7 +738,7 @@ fun MainScreen(viewModel: DeviceViewModel) {
                         .pointerInput(unlockLayout) {
                             if (unlockLayout) {
                                 detectDragGestures { change, dragAmount ->
-                                    change.consumeAllChanges()
+                                    change.consume()
                                     val newX = device.x.value + dragAmount.x
                                     val newY = device.y.value + dragAmount.y
                                     val iconSize = device.size.value
@@ -775,6 +775,10 @@ fun MainScreen(viewModel: DeviceViewModel) {
 
                         val forceAckProgress = viewModel.forceAckProgress[device.id] ?: 0f
 
+                        val cameraIconSize = (device.size.value * 0.45f).dp.coerceAtLeast(22.dp)
+                        var showManualPopup by remember { mutableStateOf(false) }
+
+                        // Device icon with camera icon overlaid top-right
                         Box(contentAlignment = Alignment.Center) {
                             AsyncImage(
                                 model = when {
@@ -795,6 +799,29 @@ fun MainScreen(viewModel: DeviceViewModel) {
                                     strokeWidth = 3.dp
                                 )
                             }
+                            // Camera icon top-right
+                            if (device.showCameraIcon.value && device.cameraEnabled.value &&
+                                device.streamUrl.value.isNotEmpty() && !device.isActive.value) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(cameraIconSize)
+                                        .align(Alignment.TopEnd)
+                                        .offset(x = (cameraIconSize * 0.3f), y = -(cameraIconSize * 0.3f))
+                                        .clickable { showManualPopup = true },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Image(
+                                        painter = painterResource(
+                                            id = if (device.labelColor.value == "black")
+                                                R.drawable.ic_camera_dark
+                                            else
+                                                R.drawable.ic_camera_white
+                                        ),
+                                        contentDescription = "View camera",
+                                        modifier = Modifier.size(cameraIconSize)
+                                    )
+                                }
+                            }
                         }
                         if (device.isForceAcknowledged.value) {
                             Text(
@@ -810,6 +837,20 @@ fun MainScreen(viewModel: DeviceViewModel) {
                             fontSize = (device.size.value / 5).coerceAtLeast(10f).sp
                         )
 
+                        // Manual camera popup
+                        if (showManualPopup) {
+                            CameraPreviewPopup(
+                                streamUrl = device.streamUrl.value,
+                                onTap = {
+                                    fullscreenUrl = device.streamUrl.value
+                                    showFullscreen = true
+                                    showManualPopup = false
+                                },
+                                onClose = { showManualPopup = false }
+                            )
+                        }
+
+                        // Alarm-triggered camera popup
                         if (device.isActive.value && !device.isForceAcknowledged.value &&
                             device.cameraEnabled.value && device.streamUrl.value.isNotEmpty()) {
                             var showPopup by remember { mutableStateOf(true) }
@@ -841,7 +882,7 @@ fun MainScreen(viewModel: DeviceViewModel) {
         if (!showFullscreen) {
             val resetScope = rememberCoroutineScope()
             var resetHoldProgress by remember { mutableStateOf(0f) }
-            var resetHoldJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+            var resetHoldJob by remember { mutableStateOf<Job?>(null) }
 
             Box(
                 modifier = Modifier
@@ -850,7 +891,8 @@ fun MainScreen(viewModel: DeviceViewModel) {
                     .padding(horizontal = 50.dp, vertical = 24.dp)
                     .zIndex(5f)
             ) {
-                Box(
+                Button(
+                    onClick = { if (!criticalAlert) viewModel.resetAlerts() },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp)
@@ -859,10 +901,10 @@ fun MainScreen(viewModel: DeviceViewModel) {
                                 detectTapGestures(
                                     onLongPress = {
                                         resetHoldJob = resetScope.launch {
-                                            val startTime = System.currentTimeMillis()
-                                            val holdDuration = 10_000L
-                                            while (System.currentTimeMillis() - startTime < holdDuration) {
-                                                resetHoldProgress = (System.currentTimeMillis() - startTime) / holdDuration.toFloat()
+                                            val start = System.currentTimeMillis()
+                                            val duration = 10_000L
+                                            while (System.currentTimeMillis() - start < duration) {
+                                                resetHoldProgress = (System.currentTimeMillis() - start) / duration.toFloat()
                                                 delay(50)
                                             }
                                             resetHoldProgress = 0f
@@ -875,39 +917,33 @@ fun MainScreen(viewModel: DeviceViewModel) {
                                     }
                                 )
                             }
-                        }
+                        },
+                    colors = ButtonDefaults.buttonColors(
+                        backgroundColor = resetButtonColor,
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(28.dp),
+                    elevation = ButtonDefaults.elevation(defaultElevation = 8.dp, pressedElevation = 12.dp)
                 ) {
-                    Button(
-                        onClick = { viewModel.resetAlerts() },
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            backgroundColor = resetButtonColor,
-                            contentColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(28.dp),
-                        elevation = ButtonDefaults.elevation(defaultElevation = 8.dp, pressedElevation = 12.dp)
-                    ) {
-                        Text(
-                            text = if (resetHoldProgress > 0f)
-                                "Hold to silence… ${((1f - resetHoldProgress) * 10).toInt() + 1}s"
-                            else "Reset",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                    // Progress bar grows along bottom of button during hold
-                    if (resetHoldProgress > 0f) {
-                        LinearProgressIndicator(
-                            progress = resetHoldProgress,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(4.dp)
-                                .align(Alignment.BottomCenter)
-                                .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp)),
-                            color = Color.White,
-                            backgroundColor = Color.White.copy(alpha = 0.3f)
-                        )
-                    }
+                    Text(
+                        text = if (resetHoldProgress > 0f)
+                            "Hold to silence… ${((1f - resetHoldProgress) * 10).toInt() + 1}s"
+                        else "Reset",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                if (resetHoldProgress > 0f) {
+                    LinearProgressIndicator(
+                        progress = resetHoldProgress,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .align(Alignment.BottomCenter)
+                            .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp)),
+                        color = Color.White,
+                        backgroundColor = Color.White.copy(alpha = 0.3f)
+                    )
                 }
             }
         }

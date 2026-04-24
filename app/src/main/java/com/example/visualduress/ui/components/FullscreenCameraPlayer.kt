@@ -23,13 +23,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.example.visualduress.ui.theme.OverlayBackground
 import com.example.visualduress.ui.theme.TextPrimary
-
-// Color scheme matching the main theme
-
 
 @Composable
 fun FullscreenCameraPlayer(
@@ -37,148 +35,75 @@ fun FullscreenCameraPlayer(
     onExit: () -> Unit
 ) {
     val context = LocalContext.current
-    val player = remember {
-        ExoPlayer.Builder(context).build().apply {
-            val mediaItem = MediaItem.Builder()
-                .setUri(Uri.parse(streamUrl))
-                .setMimeType("application/x-rtsp")
-                .build()
 
-            setMediaItem(mediaItem)
-            prepare()
-            playWhenReady = true
-        }
+    val player = remember {
+        // Increased buffer sizes for high-res streams (4MP, 1080p etc)
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                5_000,   // min buffer before playback starts
+                30_000,  // max buffer
+                1_500,   // min buffer to resume after rebuffer
+                3_000    // min buffer to resume after seek
+            )
+            .build()
+
+        ExoPlayer.Builder(context)
+            .setLoadControl(loadControl)
+            .build()
+            .apply {
+                val mediaItem = MediaItem.Builder()
+                    .setUri(Uri.parse(streamUrl))
+                    .setMimeType("application/x-rtsp")
+                    .build()
+                setMediaItem(mediaItem)
+                prepare()
+                playWhenReady = true
+            }
     }
 
     DisposableEffect(Unit) {
-        onDispose {
-            player.release()
-        }
+        onDispose { player.release() }
     }
 
     BackHandler { onExit() }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-    ) {
-        // Video Player
-        AndroidView(
-            factory = {
-                PlayerView(it).apply {
-                    this.player = player
-                    useController = true
-                }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
 
-        // Top Bar Overlay
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(80.dp)
-                .background(
-                    androidx.compose.ui.graphics.Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Black.copy(alpha = 0.7f),
-                            Color.Transparent
-                        )
-                    )
-                )
-                .zIndex(1f)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // "LIVE" indicator
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = Color.Red.copy(alpha = 0.9f),
-                    elevation = 4.dp
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        // Animated pulsing dot
-                        Box(
-                            modifier = Modifier
-                                .size(10.dp)
-                                .background(Color.White, CircleShape)
-                        )
-                        Text(
-                            "LIVE",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            letterSpacing = 1.sp
-                        )
+        AndroidView(factory = { PlayerView(it).apply { this.player = player; useController = true } },
+            modifier = Modifier.fillMaxSize())
+
+        // Top bar
+        Box(modifier = Modifier.fillMaxWidth().height(80.dp)
+            .background(androidx.compose.ui.graphics.Brush.verticalGradient(
+                colors = listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent)))
+            .zIndex(1f)) {
+            Row(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Surface(shape = RoundedCornerShape(10.dp), color = Color.Red.copy(alpha = 0.9f), elevation = 4.dp) {
+                    Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(modifier = Modifier.size(10.dp).background(Color.White, CircleShape))
+                        Text("LIVE", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White, letterSpacing = 1.sp)
                     }
                 }
-
-                // Close Button
-                Surface(
-                    shape = CircleShape,
-                    color = OverlayBackground.copy(alpha = 0.8f),
-                    elevation = 6.dp
-                ) {
-                    IconButton(
-                        onClick = onExit,
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Close Fullscreen",
-                            tint = TextPrimary,
-                            modifier = Modifier.size(24.dp)
-                        )
+                Surface(shape = CircleShape, color = OverlayBackground.copy(alpha = 0.8f), elevation = 6.dp) {
+                    IconButton(onClick = onExit, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Default.Close, "Close Fullscreen", tint = TextPrimary, modifier = Modifier.size(24.dp))
                     }
                 }
             }
         }
 
-        // Bottom Info Bar (optional)
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)  // Changed from BottomEnd to BottomCenter
-                .fillMaxWidth()
-                .height(60.dp)
-                .background(
-                    androidx.compose.ui.graphics.Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Color.Black.copy(alpha = 0.5f)
-                        )
-                    )
-                )
-                .zIndex(1f)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically  // Re-enable this for proper vertical centering
-            ) {
-                // Camera Stream Info
+        // Bottom bar
+        Box(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(60.dp)
+            .background(androidx.compose.ui.graphics.Brush.verticalGradient(
+                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.5f))))
+            .zIndex(1f)) {
+            Row(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically) {
                 Column {
-                    Text(
-                        "Camera Stream",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = TextPrimary.copy(alpha = 0.9f)
-                    )
-                    Text(
-                        "Tap controls to adjust playback",
-                        fontSize = 11.sp,
-                        color = TextPrimary.copy(alpha = 0.6f)
-                    )
+                    Text("Camera Stream", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = TextPrimary.copy(alpha = 0.9f))
+                    Text("Tap controls to adjust playback", fontSize = 11.sp, color = TextPrimary.copy(alpha = 0.6f))
                 }
             }
         }
