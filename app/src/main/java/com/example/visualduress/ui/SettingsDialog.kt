@@ -817,28 +817,30 @@ private fun InceptionMappingRow(inputInfo: InceptionInputInfo, currentSlot: Int?
 @Composable
 private fun WmsProConnectionConfig(viewModel: DeviceViewModel, context: Context) {
     val config = viewModel.wmsProConfig
-    var showToken by remember { mutableStateOf(false) }
+    var showPassword by remember { mutableStateOf(false) }
     IpSectionHeader("WMS Pro Controller",
-        "Enter the IP address of your WMS Pro server and the pre-generated Bearer token from WMS Pro Operator settings.")
+        "Enter the IP address of your WMS Pro server and the credentials of a WMS Pro External API Operator.")
     IpTextField("Host / IP Address", config.host.value, { viewModel.updateWmsProHost(it) }, "192.168.0.100")
     Spacer(modifier = Modifier.height(10.dp))
+    IpTextField("Username", config.username.value, { viewModel.updateWmsProUsername(it) }, "api_user")
+    Spacer(modifier = Modifier.height(10.dp))
     OutlinedTextField(
-        value = config.bearerToken.value,
-        onValueChange = { viewModel.updateWmsProToken(it) },
-        label = { Text("Bearer Token", fontSize = 12.sp, color = TextSecondary) },
-        placeholder = { Text("Paste bearer token from WMS Pro", color = TextSecondary.copy(alpha = 0.5f)) },
+        value = config.password.value,
+        onValueChange = { viewModel.updateWmsProPassword(it) },
+        label = { Text("Password", fontSize = 12.sp, color = TextSecondary) },
+        placeholder = { Text("••••••••", color = TextSecondary.copy(alpha = 0.5f)) },
         singleLine = true,
-        visualTransformation = if (showToken) VisualTransformation.None else PasswordVisualTransformation(),
+        visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         colors = TextFieldDefaults.outlinedTextFieldColors(
             backgroundColor = InputFieldBackground, textColor = Color.White,
             cursorColor = Color.White, focusedBorderColor = AccentOrange, unfocusedBorderColor = Color.Transparent
         ),
-        leadingIcon = { Icon(painter = painterResource(id = R.drawable.ic_key), contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp)) },
+        leadingIcon = { Icon(painter = painterResource(id = R.drawable.ic_password), contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp)) },
         trailingIcon = {
-            IconButton(onClick = { showToken = !showToken }) {
-                Icon(if (showToken) Icons.Filled.Visibility else Icons.Filled.VisibilityOff, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
+            IconButton(onClick = { showPassword = !showPassword }) {
+                Icon(if (showPassword) Icons.Filled.Visibility else Icons.Filled.VisibilityOff, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
             }
         }
     )

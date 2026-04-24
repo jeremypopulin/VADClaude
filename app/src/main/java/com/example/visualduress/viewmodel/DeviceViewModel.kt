@@ -722,7 +722,8 @@ class DeviceViewModel : ViewModel() {
     // -------------------------------------------------------------------------
 
     fun updateWmsProHost(value: String)        { wmsProConfig.host.value = value }
-    fun updateWmsProToken(value: String)        { wmsProConfig.bearerToken.value = value }
+    fun updateWmsProUsername(value: String)     { wmsProConfig.username.value = value }
+    fun updateWmsProPassword(value: String)     { wmsProConfig.password.value = value }
 
     fun updateWmsProDeviceMapping(uid: String, slotId: Int?) {
         val current = wmsProConfig.deviceMappings.value.toMutableMap()
