@@ -1,7 +1,9 @@
 package com.example.visualduress.model
 
 import androidx.compose.runtime.mutableStateOf
+import kotlinx.serialization.Serializable
 
+@Serializable
 data class SerializableDeviceState(
     val id: Int,
     val name: String,

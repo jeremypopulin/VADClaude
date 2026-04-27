@@ -52,6 +52,7 @@ import com.example.visualduress.ui.theme.InputFieldBackground
 import com.example.visualduress.ui.theme.TabIconBackground
 import com.example.visualduress.ui.theme.TextPrimary
 import com.example.visualduress.ui.theme.TextSecondary
+import com.example.visualduress.util.BackupManager
 import com.example.visualduress.viewmodel.DeviceViewModel
 import com.example.visualduress.util.*
 import kotlinx.coroutines.launch
@@ -134,7 +135,8 @@ fun SettingsDialog(
                             onLicenseKeyChange = { licenseKey = it },
                             deviceId, licenseType
                         )
-                        "about"     -> AboutContent(appVersion, companyName, websiteUrl)
+                        "backup"    -> BackupContent(viewModel)
+                        "about"     -> AboutContent(appVersion, companyName, websiteUrl, viewModel)
                     }
                 }
                 ModernCloseButton(onClick = { viewModel.closeSettings() })
@@ -179,6 +181,7 @@ private fun ModernTabNavigation(
             ModernIconTabDrawable("sms",   activeTab, R.drawable.ic_sms,      "SMS",       { onTabChange("sms") })
         }
         ModernIconTabDrawable("license",   activeTab, R.drawable.ic_license,  "Licence",   { onTabChange("license") })
+        ModernIconTabDrawable("backup",    activeTab, R.drawable.ic_about,    "Backup",    { onTabChange("backup") })
         ModernIconTabDrawable("about",     activeTab, R.drawable.ic_about,    "About",     { onTabChange("about") })
     }
 }
@@ -1168,11 +1171,102 @@ fun LicenseContent(viewModel: DeviceViewModel, context: Context, licenseKey: Str
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+@Composable
+fun BackupContent(viewModel: DeviceViewModel) {
+    val context = LocalContext.current
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri -> uri?.let { viewModel.exportBackup(context, it) } }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let { viewModel.importBackup(context, it) } }
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        // Export
+        Surface(color = InputFieldBackground, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(24.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Export", fontSize = 14.sp, color = AccentOrange, fontWeight = FontWeight.Bold)
+                    Column {
+                        Text("Export Backup", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                        Text("Save all settings to a .vad file", fontSize = 13.sp, color = TextSecondary)
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    "Exports device names, comms settings, camera URLs, SMS numbers and all configuration to a file. " +
+                            "Store it safely — use it to restore settings after a reset or deploy identical config to another tablet.",
+                    fontSize = 13.sp, color = TextSecondary, lineHeight = 19.sp
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                Button(
+                    onClick = { exportLauncher.launch(BackupManager.generateFilename()) },
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    colors = ButtonDefaults.buttonColors(backgroundColor = AccentOrange),
+                    shape = RoundedCornerShape(12.dp),
+                    elevation = ButtonDefaults.elevation(defaultElevation = 4.dp)
+                ) {
+                    Text("Export Backup", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+
+        // Import
+        Surface(color = InputFieldBackground, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(24.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Import", fontSize = 14.sp, color = AccentOrange, fontWeight = FontWeight.Bold)
+                    Column {
+                        Text("Import Backup", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                        Text("Restore settings from a .vad file", fontSize = 13.sp, color = TextSecondary)
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Surface(
+                    color = Color(0xFF3D2000),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+
+                        Text(
+                            "This will overwrite ALL current settings including device names, positions, comms config and SMS numbers. " +
+                                    "Export a backup first if you want to keep your current settings.",
+                            fontSize = 12.sp, color = Color(0xFFFFCC80), lineHeight = 17.sp
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(20.dp))
+                OutlinedButton(
+                    onClick = { importLauncher.launch(arrayOf("*/*")) },
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(2.dp, AccentOrange),
+                    colors = ButtonDefaults.outlinedButtonColors(backgroundColor = Color.Transparent)
+                ) {
+                    Text("Import Backup", color = AccentOrange, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
 // About tab
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-fun AboutContent(appVersion: String, companyName: String, websiteUrl: String) {
+fun AboutContent(appVersion: String, companyName: String, websiteUrl: String, viewModel: DeviceViewModel) {
+    val context = LocalContext.current
+
     Column(modifier = Modifier.fillMaxSize()) {
         Box(modifier = Modifier.fillMaxWidth().background(InputFieldBackground, RoundedCornerShape(16.dp)).padding(32.dp)) {
             Column {

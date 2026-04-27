@@ -20,6 +20,7 @@ import com.example.visualduress.integration.InceptionInputSource
 import com.example.visualduress.integration.WmsProInputSource
 import com.example.visualduress.integration.WmsProDeviceInfo
 import com.example.visualduress.model.*
+import com.example.visualduress.util.BackupManager
 import com.example.visualduress.util.LicenseManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -954,6 +955,105 @@ class DeviceViewModel : ViewModel() {
         connectionBeepSilenced = true
         stopConnectionBeepSafely()
         logEvent("🔕 Connection beep silenced manually")
+    }
+
+    // -------------------------------------------------------------------------
+    // Backup / Restore
+    // -------------------------------------------------------------------------
+
+    fun exportBackup(context: Context, uri: android.net.Uri) {
+        val success = BackupManager.exportToUri(
+            context = context,
+            uri = uri,
+            devices = deviceStates.toList(),
+            floorplanUri = _floorplanUri.value,
+            modbusIp = _modbusIp.value,
+            moxa2Ip = _moxa2Ip.value,
+            inputSourceType = _inputSourceType.value.name,
+            inceptionConfig = inceptionConfig,
+            wmsProConfig = wmsProConfig,
+            smsConfig = smsConfig,
+            scaleX = savedScaleX,
+            scaleY = savedScaleY,
+            offsetX = savedOffsetX,
+            offsetY = savedOffsetY,
+            aspectLock = savedAspectLock,
+            password = currentPassword,
+            appVersion = com.example.visualduress.BuildConfig.VERSION_NAME
+        )
+        if (success) {
+            logEvent("💾 Settings exported to backup file")
+            android.widget.Toast.makeText(context, "✅ Backup exported successfully", android.widget.Toast.LENGTH_SHORT).show()
+        } else {
+            android.widget.Toast.makeText(context, "❌ Export failed", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun importBackup(context: Context, uri: android.net.Uri) {
+        val backup = BackupManager.importFromUri(context, uri) ?: run {
+            android.widget.Toast.makeText(context, "❌ Invalid backup file", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+
+        viewModelScope.launch {
+            // Restore devices
+            deviceStates.clear()
+            deviceStates.addAll(backup.devices.map { it.toDeviceState() })
+            saveDeviceStates()
+
+            // Restore floorplan
+            backup.floorplanUri?.let { uriStr ->
+                try { _floorplanUri.value = android.net.Uri.parse(uriStr) } catch (e: Exception) {}
+            }
+
+            // Restore IPs
+            backup.modbusIp.takeIf { it.isNotEmpty() }?.let { setModbusIp(it) }
+            backup.moxa2Ip.takeIf { it.isNotEmpty() }?.let { setMoxa2Ip(it) }
+
+            // Restore input source type
+            try {
+                val type = com.example.visualduress.integration.InputSourceType.valueOf(backup.inputSourceType)
+                _inputSourceType.value = type
+                saveInputSourceType(context, type)
+            } catch (e: Exception) {}
+
+            // Restore Inception config
+            backup.inceptionConfig?.let { cfg ->
+                inceptionConfig = InceptionConfig.fromSerializable(cfg)
+                saveInceptionConfig(context)
+            }
+
+            // Restore WMS Pro config
+            backup.wmsProConfig?.let { cfg ->
+                wmsProConfig.loadFrom(cfg)
+                saveWmsProConfig(context)
+            }
+
+            // Restore SMS config
+            backup.smsConfig?.let { cfg ->
+                smsConfig = SmsConfig.fromSerializable(cfg)
+                saveSmsSettings(context)
+            }
+
+            // Restore transform
+            savedScaleX = backup.scaleX
+            savedScaleY = backup.scaleY
+            savedOffsetX = backup.offsetX
+            savedOffsetY = backup.offsetY
+            savedAspectLock = backup.aspectLock
+            saveFloorplanTransform(context, backup.scaleX, backup.scaleY, backup.offsetX, backup.offsetY, backup.aspectLock)
+
+            // Restore password
+            if (backup.password.isNotEmpty()) {
+                changePassword(backup.password)
+            }
+
+            // Restart polling with restored settings
+            restartPolling()
+
+            logEvent("📥 Settings restored from backup")
+            android.widget.Toast.makeText(context, "✅ Backup imported successfully", android.widget.Toast.LENGTH_SHORT).show()
+        }
     }
 
     // -------------------------------------------------------------------------
