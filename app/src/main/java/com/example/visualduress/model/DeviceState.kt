@@ -19,6 +19,8 @@ data class DeviceState(
     var alarmStateOnly: MutableState<Boolean> = mutableStateOf(false),
     /** Show a camera icon next to the device on the floor plan for manual live view */
     var showCameraIcon: MutableState<Boolean> = mutableStateOf(false),
+    /** Icon type — general, motion, smoke, heat, door, duress */
+    var iconType: MutableState<String> = mutableStateOf("general"),
     /**
      * Force-acknowledged by operator via 10s long press.
      * Device is silenced even though input is still active.

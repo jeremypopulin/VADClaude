@@ -413,6 +413,71 @@ fun DeviceSettingsContent(viewModel: DeviceViewModel, isBasic: Boolean) {
                         }
 
                         Spacer(modifier = Modifier.height(12.dp))
+
+                        // Icon type picker
+                        Text("Device Icon", fontSize = 12.sp, color = TextSecondary.copy(alpha = 0.7f),
+                            modifier = Modifier.padding(bottom = 8.dp))
+                        val iconTypes = listOf(
+                            "general" to "General",
+                            "motion" to "Motion",
+                            "smoke" to "Smoke",
+                            "heat" to "Heat",
+                            "door" to "Door",
+                            "duress" to "Duress"
+                        )
+                        val iconDrawables = mapOf(
+                            "general" to R.drawable.icon_general_normal,
+                            "motion" to R.drawable.icon_motion_normal,
+                            "smoke" to R.drawable.icon_smoke_normal,
+                            "heat" to R.drawable.icon_heat_normal,
+                            "door" to R.drawable.icon_door_normal,
+                            "duress" to R.drawable.icon_duress_normal
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            iconTypes.forEach { (type, label) ->
+                                val isSelected = device.iconType.value == type
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(
+                                            if (isSelected) AccentOrange.copy(alpha = 0.2f)
+                                            else InputFieldBackground
+                                        )
+                                        .border(
+                                            width = if (isSelected) 2.dp else 0.dp,
+                                            color = if (isSelected) AccentOrange else Color.Transparent,
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable {
+                                            device.iconType.value = type
+                                            viewModel.saveDeviceStates()
+                                        }
+                                        .padding(6.dp)
+                                ) {
+                                    iconDrawables[type]?.let { drawable ->
+                                        Image(
+                                            painter = painterResource(id = drawable),
+                                            contentDescription = label,
+                                            modifier = Modifier.size(36.dp)
+                                        )
+                                    }
+                                    Text(
+                                        text = label,
+                                        fontSize = 10.sp,
+                                        color = if (isSelected) AccentOrange else TextSecondary,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        modifier = Modifier.padding(top = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
                         Text("Camera Stream", color = TextSecondary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                         Spacer(modifier = Modifier.height(6.dp))
                         CameraUrlBuilder(
