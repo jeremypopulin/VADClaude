@@ -545,13 +545,17 @@ class DeviceViewModel : ViewModel() {
                 return
             }
 
+            // Only log devices that were actually in alarm — not every unused slot
+            val resetNames = mutableListOf<String>()
             deviceStates.forEach {
-                if (it.isActive.value || !it.acknowledged.value) {
-                    it.isActive.value = false
-                    it.acknowledged.value = true
-                    it.isForceAcknowledged.value = false
-                    logEvent("✅ ${it.name.value} manually reset")
-                }
+                if (it.isActive.value) resetNames.add(it.name.value)
+                it.isActive.value = false
+                it.acknowledged.value = true
+                it.isForceAcknowledged.value = false
+            }
+            when {
+                resetNames.size == 1 -> logEvent("✅ ${resetNames.first()} reset")
+                resetNames.size > 1 -> logEvent("✅ Reset: ${resetNames.joinToString(", ")}")
             }
 
             // Stop device alarm beep — never touches connection beep

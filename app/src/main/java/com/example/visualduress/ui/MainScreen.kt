@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -283,6 +284,51 @@ fun MainScreen(viewModel: DeviceViewModel) {
                         }
                     }
                 }
+            }
+        }
+
+        // Alarm bar — covers the top bar and names the device(s) in alarm
+        val alarmDevices = viewModel.deviceStates.filter {
+            it.isEnabled.value && it.isActive.value && !it.acknowledged.value && !it.isForceAcknowledged.value
+        }
+        if (alarmDevices.isNotEmpty() && !showFullscreen) {
+            val typeWord = mapOf(
+                "duress" to "DURESS", "motion" to "MOTION", "door" to "DOOR",
+                "smoke" to "SMOKE", "heat" to "HEAT"
+            )
+            val barText = if (alarmDevices.size == 1) {
+                val d = alarmDevices.first()
+                listOfNotNull("ALARM", typeWord[d.iconType.value], d.name.value.uppercase()).joinToString("  —  ")
+            } else {
+                "ALARM  —  ${alarmDevices.size} DEVICES  —  " +
+                        alarmDevices.joinToString("  ·  ") { it.name.value.uppercase() }
+            }
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .height(72.dp)
+                    .background(Color(0xFFFF4B4B))
+                    .padding(horizontal = 24.dp)
+                    .zIndex(11f),   // above the top bar (zIndex 10)
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Warning,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(28.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = barText,
+                    color = Color.White,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.5.sp,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
             }
         }
 
@@ -559,10 +605,23 @@ fun MainScreen(viewModel: DeviceViewModel) {
                                 fontWeight = FontWeight.Bold
                             )
                         }
+                        val inAlarm = device.isActive.value && !device.acknowledged.value && !device.isForceAcknowledged.value
                         Text(
                             text = device.name.value,
-                            color = if (device.labelColor.value == "black") Color.Black else Color.White,
-                            fontSize = (device.size.value / 5).coerceAtLeast(10f).sp
+                            color = when {
+                                inAlarm -> Color.White
+                                device.labelColor.value == "black" -> Color.Black
+                                else -> Color.White
+                            },
+                            fontSize = (device.size.value / 5).coerceAtLeast(10f).sp,
+                            fontWeight = if (inAlarm) FontWeight.SemiBold else FontWeight.Normal,
+                            modifier = Modifier
+                                .padding(top = 4.dp)
+                                .background(
+                                    color = if (inAlarm) Color(0xFFFF4B4B) else Color.Transparent,
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
                         )
 
                         // Manual camera popup

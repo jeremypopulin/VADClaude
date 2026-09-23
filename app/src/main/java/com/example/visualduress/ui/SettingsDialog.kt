@@ -81,7 +81,7 @@ fun SettingsDialog(
 
     val companyName = remember { loadCompanyName(context) }
     val websiteUrl = remember { loadWebsiteUrl(context) }
-    val appVersion = remember { loadAppVersion(context) }
+    val appVersion = remember { com.example.visualduress.BuildConfig.VERSION_NAME }
 
     var licenseKey by remember { mutableStateOf("") }
     val deviceId = remember { LicenseManager.getDeviceId(context) }

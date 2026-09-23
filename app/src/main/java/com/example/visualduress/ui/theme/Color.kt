@@ -42,5 +42,5 @@ val backgroundGradient = Brush.verticalGradient(
     )
 )
 val topBarColor = Color(0xFF3D5A73) // Top bar blue-slate color
-val resetButtonColor = Color(0xFFFF6B6B) // Coral/red for reset button
+val resetButtonColor = Color(0xFFFF4B4B) // Alarm/red for reset button- Alarm red — matches alarm bar and name tags
 val onlineColor = Color(0xFF4ECDC4)
