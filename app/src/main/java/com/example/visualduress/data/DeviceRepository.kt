@@ -1,6 +1,7 @@
 package com.example.visualduress.data
 
 import android.content.Context
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.net.Uri
 import android.util.Log
@@ -17,6 +18,7 @@ import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import kotlin.math.ceil
 
 class DeviceRepository(private val context: Context) {
 
@@ -102,8 +104,38 @@ class DeviceRepository(private val context: Context) {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Minimum alarm volume
+    // Beep plays on the media stream (MediaPlayer default). Customers can turn it
+    // down with the volume buttons, but never below this floor.
+    // -------------------------------------------------------------------------
+
+    fun loadMinVolumePercent(): Int = prefs.getInt("min_volume_pct", 40)
+
+    fun saveMinVolumePercent(percent: Int) {
+        prefs.edit().putInt("min_volume_pct", percent.coerceIn(0, 100)).apply()
+    }
+
+    /** Raise media volume to the floor if it has been turned below it. */
+    fun enforceMinVolume() {
+        try {
+            val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val stream = AudioManager.STREAM_MUSIC
+            val max = am.getStreamMaxVolume(stream)
+            val floor = ceil(max * loadMinVolumePercent() / 100f).toInt()
+            val current = am.getStreamVolume(stream)
+            if (current < floor) {
+                am.setStreamVolume(stream, floor, 0)
+                Log.i("Volume", "Volume $current below floor $floor/$max — raised")
+            }
+        } catch (e: Exception) {
+            Log.e("Volume", "Failed to enforce min volume: ${e.message}")
+        }
+    }
+
     fun playCriticalBeep(existingPlayer: MediaPlayer?): MediaPlayer {
         existingPlayer?.release()
+        enforceMinVolume()
         return MediaPlayer.create(context, R.raw.beep).apply {
             isLooping = true
             start()

@@ -1,6 +1,10 @@
 package com.example.visualduress.viewmodel
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import androidx.core.content.ContextCompat
 import com.example.visualduress.util.sendSmsAlert
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -42,6 +46,7 @@ class DeviceViewModel : ViewModel() {
     private var connectionBeepSilenced = false            // true after 10s hold silence
     private var connectionLostLogged = false              // true once a connection-lost entry is logged; cleared on recovery
     private var commissioned = false                      // true after first ever successful connection; persisted
+    private var volumeReceiver: BroadcastReceiver? = null // enforces minimum alarm volume
     private var currentPassword = DEFAULT_PASSWORD
     private var pendingAction: (() -> Unit)? = null
 
@@ -180,6 +185,20 @@ class DeviceViewModel : ViewModel() {
         contextRef = context.applicationContext
         repository = DeviceRepository(contextRef!!)
         refreshLicenseType(contextRef!!)
+
+        // Minimum alarm volume — enforce now, and every time the volume changes
+        repository.enforceMinVolume()
+        volumeReceiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context?, i: Intent?) {
+                repository.enforceMinVolume()
+            }
+        }
+        ContextCompat.registerReceiver(
+            contextRef!!,
+            volumeReceiver,
+            IntentFilter("android.media.VOLUME_CHANGED_ACTION"),
+            ContextCompat.RECEIVER_EXPORTED
+        )
 
         viewModelScope.launch {
             currentPassword = repository.loadPassword()
@@ -1173,10 +1192,22 @@ class DeviceViewModel : ViewModel() {
         saveDeviceStates()
     }
 
-    // Stop all sounds when this ViewModel is destroyed — prevents orphaned beepers
+    // Minimum alarm volume (0-100 %) — for a future Settings control
+    fun getMinVolumePercent(): Int = repository.loadMinVolumePercent()
+
+    fun setMinVolumePercent(percent: Int) {
+        repository.saveMinVolumePercent(percent)
+        repository.enforceMinVolume()
+    }
+
+    // Stop all sounds and listeners when this ViewModel is destroyed — prevents orphaned beepers
     override fun onCleared() {
         stopBeeperSafely()
         stopConnectionBeepSafely()
+        try {
+            volumeReceiver?.let { contextRef?.unregisterReceiver(it) }
+        } catch (e: Exception) { /* already unregistered */ }
+        volumeReceiver = null
         super.onCleared()
     }
 }
