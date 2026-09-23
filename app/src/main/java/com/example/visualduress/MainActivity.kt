@@ -1,13 +1,6 @@
 package com.example.visualduress
 
-import android.app.admin.DevicePolicyManager
-import android.content.ComponentName
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.os.Bundle
-import android.provider.Settings
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -32,20 +25,14 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import com.example.visualduress.receiver.KioskAdminReceiver
 import com.example.visualduress.ui.MainScreen
 import com.example.visualduress.ui.theme.VisualAlertTheme
+import com.example.visualduress.util.KioskManager
 import com.example.visualduress.viewmodel.DeviceViewModel
-
-// TODO: move into secure settings before shipping
-private const val SERVICE_PIN = "3121"
 
 class MainActivity : ComponentActivity() {
 
     private val viewModel: DeviceViewModel by viewModels()
-
-    private lateinit var dpm: DevicePolicyManager
-    private lateinit var admin: ComponentName
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,77 +41,26 @@ class MainActivity : ComponentActivity() {
         // Initialize ViewModel with application context
         viewModel.initWith(applicationContext)
 
-        dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-        admin = ComponentName(this, KioskAdminReceiver::class.java)
-
         setContent {
             VisualAlertTheme {
                 Box(Modifier.fillMaxSize()) {
                     MainScreen(viewModel = viewModel)
+                    // Emergency fallback: hidden corner still works if Settings can't be reached
                     KioskExitCorner(
                         modifier = Modifier.align(Alignment.TopStart),
-                        onUnlock = { exitKioskMode() },
-                        onOpenSettings = { openAndroidSettings() },
-                        onRemoveOwner = { removeDeviceOwner() }
+                        onUnlock = { KioskManager.exit(this@MainActivity) },
+                        onOpenSettings = { KioskManager.openAndroidSettings(this@MainActivity) },
+                        onRemoveOwner = { KioskManager.removeDeviceOwner(this@MainActivity) }
                     )
                 }
             }
         }
     }
 
-    // Re-lock every time VAD comes back to the front
+    // Re-lock every time VAD comes back to the front (only if Device Owner + kiosk enabled)
     override fun onResume() {
         super.onResume()
-        enableKioskMode()
-    }
-
-    private fun enableKioskMode() {
-        if (dpm.isDeviceOwnerApp(packageName)) {
-
-            // Allow ONLY this app
-            dpm.setLockTaskPackages(admin, arrayOf(packageName))
-
-            // Hard lockdown
-            dpm.setStatusBarDisabled(admin, true)
-            dpm.setKeyguardDisabled(admin, true)
-
-            // Force VAD as the home screen (no launcher picker)
-            val homeFilter = IntentFilter(Intent.ACTION_MAIN).apply {
-                addCategory(Intent.CATEGORY_HOME)
-                addCategory(Intent.CATEGORY_DEFAULT)
-            }
-            dpm.addPersistentPreferredActivity(
-                admin, homeFilter, ComponentName(this, MainActivity::class.java)
-            )
-
-            startLockTask() // TRUE kiosk
-        }
-    }
-
-    // Temporary release — VAD re-locks next time it comes to the front
-    private fun exitKioskMode() {
-        if (!dpm.isDeviceOwnerApp(packageName)) return
-        dpm.setStatusBarDisabled(admin, false)
-        dpm.setKeyguardDisabled(admin, false)
-        stopLockTask()
-        Toast.makeText(this, "Kiosk suspended — press Home to re-lock", Toast.LENGTH_LONG).show()
-    }
-
-    // Unlock and jump straight into Android Settings (network changes etc.)
-    private fun openAndroidSettings() {
-        exitKioskMode()
-        startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-    }
-
-    // Permanent release — removes Device Owner and home lock, no factory reset needed
-    @Suppress("DEPRECATION")
-    private fun removeDeviceOwner() {
-        if (!dpm.isDeviceOwnerApp(packageName)) return
-        exitKioskMode()
-        dpm.clearPackagePersistentPreferredActivities(admin, packageName)
-        dpm.setLockTaskPackages(admin, emptyArray())
-        dpm.clearDeviceOwnerApp(packageName)
-        Toast.makeText(this, "Device Owner removed — kiosk disabled", Toast.LENGTH_LONG).show()
+        KioskManager.enable(this)
     }
 
     // Block back button using the modern OnBackPressedDispatcher
@@ -150,7 +86,7 @@ private fun KioskExitCorner(
     var error by remember { mutableStateOf(false) }
 
     fun ifPinOk(action: () -> Unit) {
-        if (pin == SERVICE_PIN) { showDialog = false; action() } else error = true
+        if (pin == KioskManager.SERVICE_PIN) { showDialog = false; action() } else error = true
     }
 
     Box(

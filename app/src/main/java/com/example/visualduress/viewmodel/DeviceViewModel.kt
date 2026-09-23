@@ -1192,7 +1192,25 @@ class DeviceViewModel : ViewModel() {
         saveDeviceStates()
     }
 
-    // Minimum alarm volume (0-100 %) — for a future Settings control
+    // -------------------------------------------------------------------------
+    // Commissioning (setup mode)
+    // -------------------------------------------------------------------------
+
+    fun isCommissioned(): Boolean = commissioned
+
+    /** Put the unit back into setup mode — no connection-loss alarms until it connects again. */
+    fun resetToSetupMode() {
+        commissioned = false
+        contextRef?.getSharedPreferences("duress_prefs", Context.MODE_PRIVATE)
+            ?.edit()?.putBoolean("commissioned", false)?.apply()
+        _criticalAlert.value = false
+        connectionBeepSilenced = false
+        connectionLostLogged = false
+        stopConnectionBeepSafely()
+        logEvent("🔧 Reset to setup mode")
+    }
+
+    // Minimum alarm volume (0-100 %) — set from Settings → Service
     fun getMinVolumePercent(): Int = repository.loadMinVolumePercent()
 
     fun setMinVolumePercent(percent: Int) {

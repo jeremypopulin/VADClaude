@@ -136,6 +136,7 @@ fun SettingsDialog(
                             deviceId, licenseType
                         )
                         "backup"    -> BackupContent(viewModel)
+                        "service"   -> ServiceContent(viewModel)
                         "about"     -> AboutContent(appVersion, companyName, websiteUrl, viewModel)
                     }
                 }
@@ -182,6 +183,7 @@ private fun ModernTabNavigation(
         }
         ModernIconTabDrawable("license",   activeTab, R.drawable.ic_license,  "Licence",   { onTabChange("license") })
         ModernIconTabDrawable("backup",    activeTab, R.drawable.ic_about,    "Backup",    { onTabChange("backup") })
+        ModernIconTab("service",           activeTab, Icons.Filled.Build,     "Service",   { onTabChange("service") })
         ModernIconTabDrawable("about",     activeTab, R.drawable.ic_about,    "About",     { onTabChange("about") })
     }
 }
@@ -1354,6 +1356,243 @@ fun BackupContent(viewModel: DeviceViewModel) {
             }
         }
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Service tab — installer only (service PIN)
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+fun ServiceContent(viewModel: DeviceViewModel) {
+    val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
+
+    var pinUnlocked by remember { mutableStateOf(false) }
+    var pinInput by remember { mutableStateOf("") }
+    var pinError by remember { mutableStateOf(false) }
+
+    // Bump to re-read kiosk / commissioning state after an action
+    var refresh by remember { mutableStateOf(0) }
+    val isOwner = remember(refresh) { KioskManager.isDeviceOwner(context) }
+    val isLocked = remember(refresh) { KioskManager.isLocked(context) }
+    val kioskEnabled = remember(refresh) { KioskManager.isKioskEnabled(context) }
+    val commissioned = remember(refresh) { viewModel.isCommissioned() }
+
+    var confirmRemoveOwner by remember { mutableStateOf(false) }
+    var confirmSetupReset by remember { mutableStateOf(false) }
+
+    if (!pinUnlocked) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Text("Service", fontSize = 24.sp, color = TextPrimary, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text("Installer settings. Enter the service PIN to continue.",
+                fontSize = 13.sp, color = TextSecondary.copy(alpha = 0.8f))
+            Spacer(modifier = Modifier.height(20.dp))
+            OutlinedTextField(
+                value = pinInput,
+                onValueChange = { pinInput = it; pinError = false },
+                label = { Text("Service PIN", fontSize = 12.sp, color = TextSecondary) },
+                singleLine = true,
+                isError = pinError,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = TextFieldDefaults.outlinedTextFieldColors(
+                    backgroundColor = InputFieldBackground, textColor = Color.White,
+                    cursorColor = Color.White, focusedBorderColor = AccentOrange, unfocusedBorderColor = Color.Transparent
+                )
+            )
+            if (pinError) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text("Incorrect PIN", fontSize = 12.sp, color = Color(0xFFEF9A9A))
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            ServiceButton("Unlock", Modifier.fillMaxWidth()) {
+                if (pinInput == KioskManager.SERVICE_PIN) { pinUnlocked = true; pinInput = "" }
+                else pinError = true
+            }
+        }
+        return
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        item {
+            Text("Service", fontSize = 24.sp, color = TextPrimary, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text("Installer settings for this unit.", fontSize = 13.sp, color = TextSecondary.copy(alpha = 0.8f))
+        }
+
+        // ── Kiosk mode ──────────────────────────────────────────────────────
+        item {
+            ServiceCard {
+                Text("Kiosk Mode", fontSize = 17.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                Spacer(modifier = Modifier.height(10.dp))
+                ServiceStatus(
+                    ok = isOwner && isLocked,
+                    text = when {
+                        !isOwner     -> "Not available — this tablet is not set as Device Owner"
+                        isLocked     -> "Locked"
+                        kioskEnabled -> "Unlocked — re-locks when VAD returns to the front"
+                        else         -> "Kiosk lock is turned off on this unit"
+                    }
+                )
+
+                if (isOwner) {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Kiosk lock", color = TextPrimary)
+                            Text("Turn off on development and demo tablets. Leave on for customer units.",
+                                fontSize = 11.sp, color = TextSecondary.copy(alpha = 0.7f), lineHeight = 15.sp)
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Switch(
+                            checked = kioskEnabled,
+                            onCheckedChange = { enabled ->
+                                activity?.let { KioskManager.setKioskEnabled(it, enabled) }
+                                refresh++
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = DarkBlue, checkedTrackColor = Color.White,
+                                uncheckedThumbColor = Color.White, uncheckedTrackColor = Color.Black
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                        if (isLocked) {
+                            ServiceButton("Unlock", Modifier.weight(1f)) {
+                                activity?.let { KioskManager.exit(it) }
+                                refresh++
+                            }
+                        } else if (kioskEnabled) {
+                            ServiceButton("Lock now", Modifier.weight(1f)) {
+                                activity?.let { KioskManager.enable(it) }
+                                refresh++
+                            }
+                        }
+                        ServiceButton("Android Settings", Modifier.weight(1f)) {
+                            viewModel.closeSettings()
+                            activity?.let { KioskManager.openAndroidSettings(it) }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedButton(
+                        onClick = { confirmRemoveOwner = true },
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        shape = RoundedCornerShape(24.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFE53935)),
+                        colors = ButtonDefaults.outlinedButtonColors(backgroundColor = Color.Transparent)
+                    ) {
+                        Text("Remove Device Owner (decommission)", color = Color(0xFFEF9A9A), fontSize = 14.sp)
+                    }
+                } else {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text("To enable kiosk, run over ADB:", fontSize = 12.sp, color = TextSecondary.copy(alpha = 0.8f))
+                    Spacer(modifier = Modifier.height(4.dp))
+                    SelectionContainer {
+                        Text(
+                            "adb shell dpm set-device-owner com.example.visualduress/.receiver.KioskAdminReceiver",
+                            fontSize = 11.sp, color = TextPrimary
+                        )
+                    }
+                }
+            }
+        }
+
+        // ── Commissioning ───────────────────────────────────────────────────
+        item {
+            ServiceCard {
+                Text("Commissioning", fontSize = 17.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                Spacer(modifier = Modifier.height(10.dp))
+                ServiceStatus(
+                    ok = commissioned,
+                    text = if (commissioned)
+                        "Commissioned — loss of connection will alarm"
+                    else
+                        "Setup mode — no connection alarms until the first successful connection"
+                )
+                if (commissioned) {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    ServiceButton("Reset to Setup Mode", Modifier.fillMaxWidth()) { confirmSetupReset = true }
+                }
+            }
+        }
+    }
+
+    if (confirmRemoveOwner) {
+        AlertDialog(
+            onDismissRequest = { confirmRemoveOwner = false },
+            title = { Text("Remove Device Owner?") },
+            text = { Text("Kiosk lock and the home-screen lock will be removed. Turning kiosk back on needs the ADB command again.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmRemoveOwner = false
+                    activity?.let { KioskManager.removeDeviceOwner(it) }
+                    refresh++
+                }) { Text("Remove") }
+            },
+            dismissButton = { TextButton(onClick = { confirmRemoveOwner = false }) { Text("Cancel") } }
+        )
+    }
+
+    if (confirmSetupReset) {
+        AlertDialog(
+            onDismissRequest = { confirmSetupReset = false },
+            title = { Text("Reset to setup mode?") },
+            text = { Text("Connection-loss alarms stay off until VAD connects successfully again. Use this before moving a unit to a new site. If it's connected right now, it will re-commission within seconds.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmSetupReset = false
+                    viewModel.resetToSetupMode()
+                    refresh++
+                }) { Text("Reset") }
+            },
+            dismissButton = { TextButton(onClick = { confirmSetupReset = false }) { Text("Cancel") } }
+        )
+    }
+}
+
+@Composable
+private fun ServiceCard(content: @Composable ColumnScope.() -> Unit) {
+    Surface(color = InputFieldBackground, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.fillMaxWidth().padding(20.dp), content = content)
+    }
+}
+
+@Composable
+private fun ServiceStatus(ok: Boolean, text: String) {
+    Surface(
+        color = if (ok) Color(0xFF0D2B1A) else Color(0xFF2B2010),
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(modifier = Modifier.size(10.dp).background(if (ok) Color(0xFF4CAF50) else Color(0xFFF59E0B), CircleShape))
+            Text(text, fontSize = 13.sp, color = if (ok) Color(0xFF81C784) else Color(0xFFFCD34D))
+        }
+    }
+}
+
+@Composable
+private fun ServiceButton(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.height(48.dp),
+        colors = ButtonDefaults.buttonColors(backgroundColor = ActiveTabColor, contentColor = Color.White),
+        shape = RoundedCornerShape(24.dp)
+    ) { Text(label, fontSize = 14.sp, fontWeight = FontWeight.Medium) }
 }
 
 // About tab
