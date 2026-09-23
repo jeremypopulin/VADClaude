@@ -541,7 +541,7 @@ fun MainScreen(viewModel: DeviceViewModel) {
                                         "heat"   -> R.drawable.icon_heat_normal
                                         "door"   -> R.drawable.icon_door_normal
                                         "duress" -> R.drawable.icon_duress_normal
-                                        else     -> R.drawable.icon_normal_new
+                                        else     -> R.drawable.icon_general_normal
                                     }
                                     device.isActive.value && !device.acknowledged.value -> when (device.iconType.value) {
                                         "motion" -> R.drawable.icon_motion_alert
@@ -557,7 +557,7 @@ fun MainScreen(viewModel: DeviceViewModel) {
                                         "heat"   -> R.drawable.icon_heat_normal
                                         "door"   -> R.drawable.icon_door_normal
                                         "duress" -> R.drawable.icon_duress_normal
-                                        else     -> R.drawable.icon_normal_new
+                                        else     -> R.drawable.icon_general_normal
                                     }
                                 },
                                 contentDescription = null,
