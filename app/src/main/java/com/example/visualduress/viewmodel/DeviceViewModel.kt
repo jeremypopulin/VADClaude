@@ -581,7 +581,7 @@ class DeviceViewModel : ViewModel() {
     private fun logEvent(message: String) {
         contextRef?.let { ctx ->
             _eventLog.add(0, EventLogEntry(System.currentTimeMillis(), message))
-            if (_eventLog.size > 50) _eventLog.removeAt(_eventLog.lastIndex)
+            while (_eventLog.size > 500) _eventLog.removeAt(_eventLog.lastIndex)   // keep the last 500 events
             saveEventLog(ctx)
         }
     }

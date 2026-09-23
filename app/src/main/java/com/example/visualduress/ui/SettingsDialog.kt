@@ -1217,9 +1217,10 @@ fun LicenseContent(viewModel: DeviceViewModel, context: Context, licenseKey: Str
         }
         Spacer(modifier = Modifier.height(24.dp))
 
-        val expiryDate = remember { LicenseManager.getExpiryDateString(context) }
-        val daysLeft = remember { LicenseManager.getDaysUntilExpiry(context) }
-        val currentLicenseType = remember { LicenseManager.getLicenseType(context) }
+        var refresh by remember { mutableStateOf(0) }
+        val expiryDate = remember(refresh) { LicenseManager.getExpiryDateString(context) }
+        val daysLeft = remember(refresh) { LicenseManager.getDaysUntilExpiry(context) }
+        val currentLicenseType = remember(refresh) { LicenseManager.getLicenseType(context) }
 
         if (currentLicenseType != "NONE") {
             Text("Licence Status", fontSize = 18.sp, color = TextPrimary, fontWeight = FontWeight.Medium)
@@ -1291,7 +1292,11 @@ fun LicenseContent(viewModel: DeviceViewModel, context: Context, licenseKey: Str
             if (trimmedKey.isEmpty()) { Toast.makeText(context, "Please enter a license key", Toast.LENGTH_SHORT).show(); return@Button }
             if (LicenseManager.validateLicense(context, trimmedKey)) {
                 LicenseManager.saveLicense(context, trimmedKey)
-                viewModel.forceRefreshLicense(context) { Toast.makeText(context, "License activated: ${LicenseManager.getLicenseType(context)}", Toast.LENGTH_LONG).show() }
+                viewModel.forceRefreshLicense(context) {
+                    refresh++
+                    onLicenseKeyChange("")
+                    Toast.makeText(context, "License activated: ${LicenseManager.getLicenseType(context)}", Toast.LENGTH_LONG).show()
+                }
             } else Toast.makeText(context, "Invalid license key", Toast.LENGTH_LONG).show()
         }, modifier = Modifier.fillMaxWidth().height(56.dp),
             colors = ButtonDefaults.buttonColors(backgroundColor = ActiveTabColor, contentColor = Color.White),
