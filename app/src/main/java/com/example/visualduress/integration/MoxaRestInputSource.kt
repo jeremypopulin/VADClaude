@@ -1,6 +1,8 @@
 package com.example.visualduress.integration
 
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -26,7 +28,10 @@ class MoxaRestInputSource(
         ip = newIp
     }
 
-    override suspend fun poll(): Map<Int, Int> {
+    // Blocking HTTP must run off the main thread — the polling loop runs in
+    // viewModelScope (Main), so without this Android throws
+    // NetworkOnMainThreadException on every poll and the source shows offline.
+    override suspend fun poll(): Map<Int, Int> = withContext(Dispatchers.IO) {
         val trimmedIp = ip.trim()
         val url = URL("http://$trimmedIp/api/slot/0/io/di")
 
@@ -48,7 +53,7 @@ class MoxaRestInputSource(
             val json = JSONObject(conn.inputStream.bufferedReader().readText())
             val arr = json.getJSONObject("io").getJSONArray("di")
 
-            return (0 until arr.length()).associate { i ->
+            (0 until arr.length()).associate { i ->
                 val obj = arr.getJSONObject(i)
                 // Apply slot offset so unit 2 maps to slots 17-32
                 (obj.getInt("diIndex") + 1 + slotOffset) to obj.getInt("diStatus")

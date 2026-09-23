@@ -601,7 +601,7 @@ fun IpContent(viewModel: DeviceViewModel, modbusIp: String, context: Context) {
 
         when (selectedSource) {
             InputSourceType.MOXA_REST   -> { item { MoxaRestConfig(viewModel, modbusIp, context, isUnit2 = false) } }
-            InputSourceType.MOXA_REST_2 -> { item { MoxaRestConfig(viewModel, modbusIp, context, isUnit2 = true) } }
+            InputSourceType.MOXA_REST_2 -> { item { MoxaRestConfig(viewModel, moxa2Ip, context, isUnit2 = true) } }
             InputSourceType.MODBUS_TCP  -> { item { ModbusTcpConfig(viewModel, modbusIp, context) } }
             InputSourceType.INCEPTION   -> {
                 item { InceptionConnectionConfig(viewModel, context) }
@@ -687,26 +687,45 @@ private fun SourceSelectorCard(type: InputSourceType, isSelected: Boolean, onCli
 }
 
 @Composable
-private fun MoxaRestConfig(viewModel: DeviceViewModel, modbusIp: String, context: Context, isUnit2: Boolean = false) {
-    val moxa2Ip by viewModel.moxa2Ip
-    var ipInput by remember(if (isUnit2) moxa2Ip else modbusIp) {
-        mutableStateOf(if (isUnit2) moxa2Ip else modbusIp)
-    }
+private fun MoxaRestConfig(viewModel: DeviceViewModel, savedIp: String, context: Context, isUnit2: Boolean = false) {
+    // savedIp is modbusIp for unit 1 and moxa2Ip for unit 2 — the caller picks.
+    var ipInput by remember(savedIp) { mutableStateOf(savedIp) }
     val slotRange = if (isUnit2) "17–32" else "1–16"
+    val scope = rememberCoroutineScope()
+    var testing by remember { mutableStateOf(false) }
+    var testPassed by remember { mutableStateOf(false) }
+    var testError by remember { mutableStateOf<String?>(null) }
     IpSectionHeader("Moxa ioLogik Settings (Unit ${if (isUnit2) 2 else 1})",
         "Polls GET /api/slot/0/io/di every 3 s. Maps to device slots $slotRange.")
     IpTextField("Device IP Address", ipInput, { ipInput = it }, if (isUnit2) "192.168.0.251" else "192.168.0.250")
     Spacer(modifier = Modifier.height(12.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
         Button(
-            onClick = { Toast.makeText(context, "Testing Moxa Unit ${if (isUnit2) 2 else 1}…", Toast.LENGTH_SHORT).show() },
+            onClick = {
+                if (ipInput.trim().isEmpty()) {
+                    Toast.makeText(context, "Enter a valid IP", Toast.LENGTH_SHORT).show()
+                } else {
+                    scope.launch {
+                        testing = true; testPassed = false; testError = null
+                        val err = viewModel.testMoxaConnection(ipInput)
+                        if (err == null) testPassed = true else testError = err
+                        testing = false
+                    }
+                }
+            },
             modifier = Modifier.weight(1f).height(48.dp),
             colors = ButtonDefaults.buttonColors(backgroundColor = TabIconBackground, contentColor = Color.White),
-            shape = RoundedCornerShape(24.dp)
+            shape = RoundedCornerShape(24.dp), enabled = !testing
         ) {
-            Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-            Spacer(modifier = Modifier.width(6.dp))
-            Text("Test", fontSize = 14.sp)
+            if (testing) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = AccentOrange, strokeWidth = 2.dp)
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Testing…", fontSize = 14.sp)
+            } else {
+                Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Test", fontSize = 14.sp)
+            }
         }
         Button(
             onClick = {
@@ -719,6 +738,18 @@ private fun MoxaRestConfig(viewModel: DeviceViewModel, modbusIp: String, context
             colors = ButtonDefaults.buttonColors(backgroundColor = ActiveTabColor, contentColor = Color.White),
             shape = RoundedCornerShape(24.dp)
         ) { Text("Save IP", fontSize = 14.sp, fontWeight = FontWeight.Medium) }
+    }
+    if (testPassed) {
+        Spacer(modifier = Modifier.height(8.dp))
+        Surface(color = Color(0xFF153B15), shape = RoundedCornerShape(8.dp)) {
+            Text("✓ Connection OK", fontSize = 12.sp, color = Color(0xFF9AEF9A), modifier = Modifier.padding(10.dp))
+        }
+    }
+    testError?.let {
+        Spacer(modifier = Modifier.height(8.dp))
+        Surface(color = Color(0xFF3B1515), shape = RoundedCornerShape(8.dp)) {
+            Text("✗ Connection failed: $it", fontSize = 12.sp, color = Color(0xFFEF9A9A), modifier = Modifier.padding(10.dp))
+        }
     }
 }
 
@@ -1376,6 +1407,7 @@ fun SmsSettings(viewModel: DeviceViewModel) {
                         Spacer(modifier = Modifier.height(6.dp))
                         OutlinedTextField(value = entry.number.value, onValueChange = { viewModel.updateSmsNumber(index, it) },
                             placeholder = { Text("Enter phone number", color = TextSecondary.copy(alpha = 0.6f), fontSize = 14.sp) },
+                            singleLine = true,
                             modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
                             colors = TextFieldDefaults.outlinedTextFieldColors(backgroundColor = InputFieldBackground, textColor = Color.White, cursorColor = Color.White, focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
                             leadingIcon = { Icon(painter = painterResource(id = R.drawable.ic_call), contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp)) })

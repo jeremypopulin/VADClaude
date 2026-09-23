@@ -431,10 +431,17 @@ fun MainScreen(viewModel: DeviceViewModel) {
             viewModel.deviceStates.forEach { device ->
                 if (!device.isEnabled.value) return@forEach
 
+                var showManualPopup by remember { mutableStateOf(false) }
+                // While a camera preview is on screen, raise this marker above neighbouring
+                // device icons so the (wider) preview isn't drawn behind them.
+                val cameraPreviewVisible = showManualPopup ||
+                    (device.isActive.value && !device.isForceAcknowledged.value &&
+                        device.cameraEnabled.value && device.streamUrl.value.isNotEmpty())
+
                 Box(
                     modifier = Modifier
                         .offset(device.x.value.dp, device.y.value.dp)
-                        .zIndex(2f)
+                        .zIndex(if (cameraPreviewVisible) 10f else 2f)
                         .pointerInput(unlockLayout) {
                             if (unlockLayout) {
                                 detectDragGestures { change, dragAmount ->
@@ -476,7 +483,6 @@ fun MainScreen(viewModel: DeviceViewModel) {
                         val forceAckProgress = viewModel.forceAckProgress[device.id] ?: 0f
 
                         val cameraIconSize = (device.size.value * 0.45f).dp.coerceAtLeast(22.dp)
-                        var showManualPopup by remember { mutableStateOf(false) }
 
                         // Device icon with camera icon overlaid top-right
                         Box(contentAlignment = Alignment.Center) {

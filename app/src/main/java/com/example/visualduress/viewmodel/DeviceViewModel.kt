@@ -31,6 +31,7 @@ import kotlinx.serialization.json.Json
 import java.io.*
 import java.net.HttpURLConnection
 import java.net.URL
+import org.json.JSONObject
 
 class DeviceViewModel : ViewModel() {
 
@@ -39,6 +40,7 @@ class DeviceViewModel : ViewModel() {
     private var beepPlayer: MediaPlayer? = null          // device alarm beep
     private var connectionBeepPlayer: MediaPlayer? = null  // connection lost beep
     private var connectionBeepSilenced = false            // true after 10s hold silence
+    private var connectionLostLogged = false              // true once a connection-lost entry is logged; cleared on recovery
     private var currentPassword = DEFAULT_PASSWORD
     private var pendingAction: (() -> Unit)? = null
 
@@ -323,6 +325,11 @@ class DeviceViewModel : ViewModel() {
                     _criticalAlert.value = false
                     connectionBeepSilenced = false  // reset silenced flag on reconnect
                     stopConnectionBeepSafely()
+                }
+                // If we logged a connection-lost entry, log the recovery and re-arm
+                // logging for the next drop.
+                if (connectionLostLogged) {
+                    connectionLostLogged = false
                     logEvent("ℹ️ Connection to ${source.displayName} restored")
                 }
 
@@ -330,10 +337,18 @@ class DeviceViewModel : ViewModel() {
                 _isConnected.value = false
                 Log.e("Polling", "${source.displayName} poll error: ${e.message}")
 
+                // Log the drop immediately on first detection. Suppress further
+                // connection-lost entries until a recovery is logged, so a flapping
+                // link can't flood the Event Log.
+                if (!connectionLostLogged) {
+                    connectionLostLogged = true
+                    logEvent("❌ Connection to ${source.displayName} lost")
+                }
+
+                // Beeper still only escalates after 2 minutes offline — unchanged.
                 val timeOffline = System.currentTimeMillis() - lastSuccessfulPoll
                 if (timeOffline >= 2 * 60 * 1000L && !_criticalAlert.value) {
                     _criticalAlert.value = true
-                    logEvent("❌ Connection to ${source.displayName} lost (2+ minutes)")
                 }
                 // Keep connection beep alive while connection is lost — unless manually silenced
                 if (_criticalAlert.value && !connectionBeepSilenced &&
@@ -588,6 +603,39 @@ class DeviceViewModel : ViewModel() {
     fun setMoxa2Ip(ip: String) {
         _moxa2Ip.value = ip
         contextRef?.let { saveMoxa2Ip(it, ip) }
+    }
+
+    /**
+     * Test connectivity to a Moxa ioLogik unit by issuing the same GET request the
+     * poller uses. Returns null on success, or a human-readable error message on failure.
+     * Does not change the saved IP — the caller passes the IP to test directly.
+     */
+    suspend fun testMoxaConnection(ip: String): String? = withContext(Dispatchers.IO) {
+        val trimmedIp = ip.trim()
+        if (trimmedIp.isEmpty()) return@withContext "Enter an IP address first"
+        var conn: HttpURLConnection? = null
+        try {
+            conn = (URL("http://$trimmedIp/api/slot/0/io/di").openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("Accept", "vdn.dac.v1")
+                connectTimeout = 3000
+                readTimeout = 3000
+            }
+            val code = conn.responseCode
+            if (code != HttpURLConnection.HTTP_OK) {
+                return@withContext "HTTP $code from $trimmedIp"
+            }
+            // Confirm it really is a Moxa ioLogik (response has io.di array)
+            val json = JSONObject(conn.inputStream.bufferedReader().readText())
+            val count = json.getJSONObject("io").getJSONArray("di").length()
+            Log.d("MoxaRest", "Test OK for $trimmedIp ($count inputs)")
+            null
+        } catch (e: Exception) {
+            Log.e("MoxaRest", "Test failed for $trimmedIp: ${e.message}")
+            e.message ?: "Connection failed"
+        } finally {
+            conn?.disconnect()
+        }
     }
 
     fun changePassword(newPassword: String) {
