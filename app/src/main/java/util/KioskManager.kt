@@ -92,6 +92,8 @@ object KioskManager {
         try {
             dpm.setStatusBarDisabled(admin, false)
             dpm.setKeyguardDisabled(admin, false)
+            // Release home screen so Android Studio / updates can close VAD. Re-applied by enable().
+            dpm.clearPackagePersistentPreferredActivities(admin, activity.packageName)
             if (isLocked(activity)) activity.stopLockTask()
             if (showToast) {
                 Toast.makeText(activity, "Kiosk unlocked — re-locks when VAD returns to the front", Toast.LENGTH_LONG).show()
