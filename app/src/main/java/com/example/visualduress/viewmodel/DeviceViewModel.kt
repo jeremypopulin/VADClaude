@@ -41,6 +41,7 @@ class DeviceViewModel : ViewModel() {
     private var connectionBeepPlayer: MediaPlayer? = null  // connection lost beep
     private var connectionBeepSilenced = false            // true after 10s hold silence
     private var connectionLostLogged = false              // true once a connection-lost entry is logged; cleared on recovery
+    private var commissioned = false                      // true after first ever successful connection; persisted
     private var currentPassword = DEFAULT_PASSWORD
     private var pendingAction: (() -> Unit)? = null
 
@@ -210,6 +211,8 @@ class DeviceViewModel : ViewModel() {
             loadInputSourceSettings(contextRef!!)
             loadInceptionConfig(contextRef!!)
             loadWmsProConfig(contextRef!!)
+            commissioned = contextRef!!.getSharedPreferences("duress_prefs", Context.MODE_PRIVATE)
+                .getBoolean("commissioned", false)
 
             startPollingWithCurrentSource()
         }
@@ -321,6 +324,14 @@ class DeviceViewModel : ViewModel() {
                 _isConnected.value = true
                 _connectionStatusText.value = source.displayName
 
+                // First ever successful connection — unit is now commissioned
+                if (!commissioned) {
+                    commissioned = true
+                    contextRef?.getSharedPreferences("duress_prefs", Context.MODE_PRIVATE)
+                        ?.edit()?.putBoolean("commissioned", true)?.apply()
+                    logEvent("✅ Commissioned — first connection to ${source.displayName}")
+                }
+
                 if (_criticalAlert.value) {
                     _criticalAlert.value = false
                     connectionBeepSilenced = false  // reset silenced flag on reconnect
@@ -337,23 +348,28 @@ class DeviceViewModel : ViewModel() {
                 _isConnected.value = false
                 Log.e("Polling", "${source.displayName} poll error: ${e.message}")
 
-                // Log the drop immediately on first detection. Suppress further
-                // connection-lost entries until a recovery is logged, so a flapping
-                // link can't flood the Event Log.
-                if (!connectionLostLogged) {
-                    connectionLostLogged = true
-                    logEvent("❌ Connection to ${source.displayName} lost")
-                }
+                if (!commissioned) {
+                    // Setup mode — never connected yet: no log spam, no banner, no beep
+                    _connectionStatusText.value = "Not configured — waiting for first connection"
+                    lastSuccessfulPoll = System.currentTimeMillis()  // 2-min timer starts from commissioning
+                } else {
+                    // Log the drop immediately on first detection. Suppress further
+                    // connection-lost entries until a recovery is logged.
+                    if (!connectionLostLogged) {
+                        connectionLostLogged = true
+                        logEvent("❌ Connection to ${source.displayName} lost")
+                    }
 
-                // Beeper still only escalates after 2 minutes offline — unchanged.
-                val timeOffline = System.currentTimeMillis() - lastSuccessfulPoll
-                if (timeOffline >= 2 * 60 * 1000L && !_criticalAlert.value) {
-                    _criticalAlert.value = true
-                }
-                // Keep connection beep alive while connection is lost — unless manually silenced
-                if (_criticalAlert.value && !connectionBeepSilenced &&
-                    (connectionBeepPlayer == null || connectionBeepPlayer?.isPlaying == false)) {
-                    connectionBeepPlayer = repository.playCriticalBeep(connectionBeepPlayer)
+                    // Beeper only escalates after 2 minutes offline
+                    val timeOffline = System.currentTimeMillis() - lastSuccessfulPoll
+                    if (timeOffline >= 2 * 60 * 1000L && !_criticalAlert.value) {
+                        _criticalAlert.value = true
+                    }
+                    // Keep connection beep alive while connection is lost — unless manually silenced
+                    if (_criticalAlert.value && !connectionBeepSilenced &&
+                        (connectionBeepPlayer == null || connectionBeepPlayer?.isPlaying == false)) {
+                        connectionBeepPlayer = repository.playCriticalBeep(connectionBeepPlayer)
+                    }
                 }
 
                 // Back-off before retrying to avoid hammering offline devices
@@ -1155,5 +1171,12 @@ class DeviceViewModel : ViewModel() {
         val anyDisabled = deviceStates.any { !it.isEnabled.value }
         deviceStates.forEach { it.isEnabled.value = anyDisabled }
         saveDeviceStates()
+    }
+
+    // Stop all sounds when this ViewModel is destroyed — prevents orphaned beepers
+    override fun onCleared() {
+        stopBeeperSafely()
+        stopConnectionBeepSafely()
+        super.onCleared()
     }
 }
