@@ -36,6 +36,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Only ever ONE VAD screen. Android can open a second copy (home screen +
+        // launcher / boot start). Each copy polls inputs and beeps on its own, so
+        // close any older copy as soon as a new one opens.
+        current?.get()?.takeIf { it !== this && !it.isFinishing }?.finish()
+        current = java.lang.ref.WeakReference(this)
+
         onBackPressedDispatcher.addCallback(this, backCallback)
 
         // Initialize ViewModel with application context
@@ -61,6 +68,15 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         KioskManager.enable(this)
+    }
+
+    override fun onDestroy() {
+        if (current?.get() === this) current = null
+        super.onDestroy()
+    }
+
+    companion object {
+        private var current: java.lang.ref.WeakReference<MainActivity>? = null
     }
 
     // Block back button using the modern OnBackPressedDispatcher

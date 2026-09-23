@@ -112,11 +112,12 @@ fun MainScreen(viewModel: DeviceViewModel) {
         }
     }
 
-    var scaleX by remember { mutableStateOf(viewModel.savedScaleX) }
-    var scaleY by remember { mutableStateOf(viewModel.savedScaleY) }
-    var offsetX by remember { mutableStateOf(viewModel.savedOffsetX) }
-    var offsetY by remember { mutableStateOf(viewModel.savedOffsetY) }
-    var lockAspectRatio by remember { mutableStateOf(viewModel.savedAspectLock) }
+    // Keyed on the saved values so an imported .vad file applies straight away
+    var scaleX by remember(viewModel.savedScaleX) { mutableStateOf(viewModel.savedScaleX) }
+    var scaleY by remember(viewModel.savedScaleY) { mutableStateOf(viewModel.savedScaleY) }
+    var offsetX by remember(viewModel.savedOffsetX) { mutableStateOf(viewModel.savedOffsetX) }
+    var offsetY by remember(viewModel.savedOffsetY) { mutableStateOf(viewModel.savedOffsetY) }
+    var lockAspectRatio by remember(viewModel.savedAspectLock) { mutableStateOf(viewModel.savedAspectLock) }
 
     var showFullscreen by remember { mutableStateOf(false) }
     var fullscreenUrl by remember { mutableStateOf("") }
@@ -435,8 +436,8 @@ fun MainScreen(viewModel: DeviceViewModel) {
                 // While a camera preview is on screen, raise this marker above neighbouring
                 // device icons so the (wider) preview isn't drawn behind them.
                 val cameraPreviewVisible = showManualPopup ||
-                    (device.isActive.value && !device.isForceAcknowledged.value &&
-                        device.cameraEnabled.value && device.streamUrl.value.isNotEmpty())
+                        (device.isActive.value && !device.isForceAcknowledged.value &&
+                                device.cameraEnabled.value && device.streamUrl.value.isNotEmpty())
 
                 Box(
                     modifier = Modifier

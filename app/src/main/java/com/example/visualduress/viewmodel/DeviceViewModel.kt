@@ -16,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.visualduress.R
+import com.example.visualduress.data.AlarmSound
 import com.example.visualduress.data.DeviceRepository
 import com.example.visualduress.integration.InputSource
 import com.example.visualduress.integration.InputSourceFactory
@@ -41,8 +42,9 @@ class DeviceViewModel : ViewModel() {
 
     private lateinit var repository: DeviceRepository
     private var contextRef: Context? = null
-    private var beepPlayer: MediaPlayer? = null          // device alarm beep
-    private var connectionBeepPlayer: MediaPlayer? = null  // connection lost beep
+    // Alarm sound is one shared player (AlarmSound) with two reasons: "device" and "connection".
+    // Two sounds can never overlap, even if the screen is rebuilt.
+    private var initialised = false                       // initWith runs once per ViewModel
     private var connectionBeepSilenced = false            // true after 10s hold silence
     private var connectionLostLogged = false              // true once a connection-lost entry is logged; cleared on recovery
     private var commissioned = false                      // true after first ever successful connection; persisted
@@ -182,6 +184,10 @@ class DeviceViewModel : ViewModel() {
     // -------------------------------------------------------------------------
 
     fun initWith(context: Context) {
+        // The ViewModel outlives the screen. If the screen is rebuilt, don't start a
+        // second polling loop / volume listener — that caused doubled beeping.
+        if (initialised) return
+        initialised = true
         contextRef = context.applicationContext
         repository = DeviceRepository(contextRef!!)
         refreshLicenseType(contextRef!!)
@@ -385,9 +391,8 @@ class DeviceViewModel : ViewModel() {
                         _criticalAlert.value = true
                     }
                     // Keep connection beep alive while connection is lost — unless manually silenced
-                    if (_criticalAlert.value && !connectionBeepSilenced &&
-                        (connectionBeepPlayer == null || connectionBeepPlayer?.isPlaying == false)) {
-                        connectionBeepPlayer = repository.playCriticalBeep(connectionBeepPlayer)
+                    if (_criticalAlert.value && !connectionBeepSilenced) {
+                        repository.startAlarm(AlarmSound.CONNECTION)
                     }
                 }
 
@@ -504,9 +509,7 @@ class DeviceViewModel : ViewModel() {
         }
 
         if (anyUnacknowledgedActive) {
-            if (beepPlayer == null || beepPlayer?.isPlaying == false) {
-                beepPlayer = repository.playCriticalBeep(beepPlayer)
-            }
+            repository.startAlarm(AlarmSound.DEVICE)
         } else {
             stopBeeperSafely()
         }
@@ -561,31 +564,11 @@ class DeviceViewModel : ViewModel() {
         }
     }
 
-    private fun stopBeeperSafely() {
-        try {
-            beepPlayer?.let { player ->
-                if (player.isPlaying) player.stop()
-                player.reset()
-                player.release()
-            }
-            beepPlayer = null
-        } catch (e: Exception) {
-            Log.e("Beeper", "Error stopping beeper: ${e.message}", e)
-        }
-    }
+    /** Device alarm no longer needs sound (sound keeps going if the connection alarm is still active). */
+    private fun stopBeeperSafely() = AlarmSound.stop(AlarmSound.DEVICE)
 
-    private fun stopConnectionBeepSafely() {
-        try {
-            connectionBeepPlayer?.let { player ->
-                if (player.isPlaying) player.stop()
-                player.reset()
-                player.release()
-            }
-            connectionBeepPlayer = null
-        } catch (e: Exception) {
-            Log.e("Beeper", "Error stopping connection beeper: ${e.message}", e)
-        }
-    }
+    /** Connection alarm no longer needs sound (sound keeps going if a device alarm is still active). */
+    private fun stopConnectionBeepSafely() = AlarmSound.stop(AlarmSound.CONNECTION)
 
     // -------------------------------------------------------------------------
     // Event log
@@ -625,9 +608,78 @@ class DeviceViewModel : ViewModel() {
         contextRef?.let { saveDeviceStates(it, deviceStates) }
     }
 
+    /**
+     * Set the floor plan. A picked image (Downloads, USB stick, etc.) is COPIED into VAD's own
+     * storage, so it survives restarts, removing the USB stick, or the original being deleted.
+     */
     fun setFloorplanUri(uri: Uri) {
-        _floorplanUri.value = uri
-        contextRef?.let { saveFloorplanUri(it, uri) }
+        val ctx = contextRef ?: return
+
+        // Remove floor plan, or already a local copy — just save it
+        if (uri == Uri.EMPTY || uri.scheme == "file") {
+            if (uri == Uri.EMPTY) deleteLocalFloorplans(ctx, keep = null)
+            _floorplanUri.value = uri
+            saveFloorplanUri(ctx, uri)
+            return
+        }
+
+        viewModelScope.launch {
+            val local = withContext(Dispatchers.IO) { copyFloorplanToLocal(ctx, uri) }
+            if (local != null) {
+                _floorplanUri.value = local
+                saveFloorplanUri(ctx, local)
+                logEvent("🗺️ Floor plan loaded")
+            } else {
+                Toast.makeText(ctx, "❌ Could not load that image. Try copying it to Downloads first.", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun copyFloorplanToLocal(ctx: Context, source: Uri): Uri? {
+        return try {
+            val dir = File(ctx.filesDir, "floorplan").apply { mkdirs() }
+            val mime = ctx.contentResolver.getType(source).orEmpty()
+            val ext = when {
+                mime.contains("png") -> "png"
+                mime.contains("webp") -> "webp"
+                else -> "jpg"
+            }
+            // New name each time so the image view reloads instead of showing a cached old plan
+            val out = File(dir, "floorplan_${System.currentTimeMillis()}.$ext")
+            val input = ctx.contentResolver.openInputStream(source) ?: return null
+            input.use { inp -> out.outputStream().use { inp.copyTo(it) } }
+            if (out.length() == 0L) { out.delete(); return null }
+            deleteLocalFloorplans(ctx, keep = out)
+            Uri.fromFile(out)
+        } catch (e: Exception) {
+            Log.e("Floorplan", "Copy failed: ${e.message}", e)
+            null
+        }
+    }
+
+    /** Write a base64 floor plan (from a .vad file) into VAD's own storage. */
+    private fun restoreFloorplanImage(ctx: Context, base64: String, mime: String?): Uri? {
+        return try {
+            val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+            if (bytes.isEmpty()) return null
+            val ext = when {
+                mime?.contains("png") == true -> "png"
+                mime?.contains("webp") == true -> "webp"
+                else -> "jpg"
+            }
+            val dir = File(ctx.filesDir, "floorplan").apply { mkdirs() }
+            val out = File(dir, "floorplan_${System.currentTimeMillis()}.$ext")
+            out.writeBytes(bytes)
+            deleteLocalFloorplans(ctx, keep = out)
+            Uri.fromFile(out)
+        } catch (e: Exception) {
+            Log.e("Floorplan", "Restore from backup failed: ${e.message}", e)
+            null
+        }
+    }
+
+    private fun deleteLocalFloorplans(ctx: Context, keep: File?) {
+        File(ctx.filesDir, "floorplan").listFiles()?.forEach { if (it != keep) it.delete() }
     }
 
     fun setModbusIp(ip: String) {
@@ -1045,6 +1097,12 @@ class DeviceViewModel : ViewModel() {
     // -------------------------------------------------------------------------
 
     fun exportBackup(context: Context, uri: android.net.Uri) {
+        // Include the floor plan image itself when VAD holds its own copy
+        val fpFile = _floorplanUri.value?.takeIf { it.scheme == "file" }?.path?.let { File(it) }?.takeIf { it.exists() }
+        val fpImage = fpFile?.let { android.util.Base64.encodeToString(it.readBytes(), android.util.Base64.NO_WRAP) }
+        val fpMime = fpFile?.let {
+            when (it.extension.lowercase()) { "png" -> "image/png"; "webp" -> "image/webp"; else -> "image/jpeg" }
+        }
         val success = BackupManager.exportToUri(
             context = context,
             uri = uri,
@@ -1062,7 +1120,9 @@ class DeviceViewModel : ViewModel() {
             offsetY = savedOffsetY,
             aspectLock = savedAspectLock,
             password = currentPassword,
-            appVersion = com.example.visualduress.BuildConfig.VERSION_NAME
+            appVersion = com.example.visualduress.BuildConfig.VERSION_NAME,
+            floorplanImage = fpImage,
+            floorplanMime = fpMime
         )
         if (success) {
             logEvent("💾 Settings exported to backup file")
@@ -1084,9 +1144,17 @@ class DeviceViewModel : ViewModel() {
             deviceStates.addAll(backup.devices.map { it.toDeviceState() })
             saveDeviceStates()
 
-            // Restore floorplan
-            backup.floorplanUri?.let { uriStr ->
-                try { _floorplanUri.value = android.net.Uri.parse(uriStr) } catch (e: Exception) {}
+            // Restore floorplan — image inside the file (Configurator / new backups) wins
+            val restoredPlan = backup.floorplanImage?.let { b64 ->
+                withContext(Dispatchers.IO) { restoreFloorplanImage(context, b64, backup.floorplanMime) }
+            }
+            if (restoredPlan != null) {
+                _floorplanUri.value = restoredPlan
+                saveFloorplanUri(context, restoredPlan)
+            } else {
+                backup.floorplanUri?.let { uriStr ->
+                    try { _floorplanUri.value = android.net.Uri.parse(uriStr) } catch (e: Exception) {}
+                }
             }
 
             // Restore IPs

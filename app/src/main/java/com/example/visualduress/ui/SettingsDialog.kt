@@ -1085,28 +1085,60 @@ private fun IpTextField(label: String, value: String, onValueChange: (String) ->
 
 @Composable
 fun FloorplanContent(viewModel: DeviceViewModel, launcher: ActivityResultLauncher<Array<String>>, floorplanUri: Uri?) {
+    val hasPlan = floorplanUri != null && floorplanUri != Uri.EMPTY
+    var confirmRemove by remember { mutableStateOf(false) }
+
     Column(modifier = Modifier.fillMaxSize()) {
-        Text("Floorplan Images", fontSize = 24.sp, color = TextPrimary, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(20.dp))
-        Button(onClick = { launcher.launch(arrayOf("image/*")) }, modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(backgroundColor = ActiveTabColor, contentColor = Color.White),
-            shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(horizontal = 24.dp, vertical = 14.dp)
-        ) {
-            Text("Select Floorplan Image", fontSize = 16.sp, fontWeight = FontWeight.Medium)
-        }
-        Spacer(modifier = Modifier.height(24.dp))
-        floorplanUri?.let { uri ->
-            AsyncImage(model = uri, contentDescription = "Selected Floorplan",
-                modifier = Modifier.fillMaxWidth().height(400.dp).clip(RoundedCornerShape(16.dp)).background(Color.White))
-        }
-        Spacer(modifier = Modifier.weight(1f))
-        if (floorplanUri != null) {
-            Button(onClick = { viewModel.setFloorplanUri(Uri.EMPTY) },
-                modifier = Modifier.fillMaxWidth().height(56.dp),
+        Text("Floorplan Image", fontSize = 24.sp, color = TextPrimary, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+            Button(
+                onClick = { launcher.launch(arrayOf("image/*")) },
+                modifier = Modifier.weight(1f).height(52.dp),
                 colors = ButtonDefaults.buttonColors(backgroundColor = ActiveTabColor, contentColor = Color.White),
-                shape = RoundedCornerShape(28.dp)
-            ) { Text("Remove Floorplan", fontSize = 16.sp, fontWeight = FontWeight.Medium) }
+                shape = RoundedCornerShape(26.dp)
+            ) { Text(if (hasPlan) "Change Floorplan" else "Select Floorplan Image", fontSize = 15.sp, fontWeight = FontWeight.Medium) }
+
+            if (hasPlan) {
+                OutlinedButton(
+                    onClick = { confirmRemove = true },
+                    modifier = Modifier.weight(1f).height(52.dp),
+                    shape = RoundedCornerShape(26.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFE53935)),
+                    colors = ButtonDefaults.outlinedButtonColors(backgroundColor = Color.Transparent)
+                ) { Text("Remove Floorplan", color = Color(0xFFEF9A9A), fontSize = 15.sp, fontWeight = FontWeight.Medium) }
+            }
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (hasPlan) {
+            AsyncImage(
+                model = floorplanUri,
+                contentDescription = "Selected Floorplan",
+                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(InputFieldBackground)
+            )
+        } else {
+            Text("No floorplan loaded.", color = TextSecondary, fontSize = 14.sp)
+        }
+    }
+
+    if (confirmRemove) {
+        AlertDialog(
+            onDismissRequest = { confirmRemove = false },
+            title = { Text("Remove floorplan?") },
+            text = { Text("The floor plan image will be removed from this tablet. Device positions are kept.") },
+            confirmButton = {
+                TextButton(onClick = { confirmRemove = false; viewModel.setFloorplanUri(Uri.EMPTY) }) { Text("Remove") }
+            },
+            dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Cancel") } }
+        )
     }
 }
 

@@ -24,6 +24,9 @@ object BackupManager {
         val appVersion: String = "",
         val devices: List<SerializableDeviceState> = emptyList(),
         val floorplanUri: String? = null,
+        /** Floor plan image itself (base64), so one file sets up a whole tablet. Null in old backups. */
+        val floorplanImage: String? = null,
+        val floorplanMime: String? = null,
         val modbusIp: String = "",
         val moxa2Ip: String = "",
         val inputSourceType: String = "MOXA_REST",
@@ -59,7 +62,9 @@ object BackupManager {
         offsetY: Float,
         aspectLock: Boolean,
         password: String,
-        appVersion: String
+        appVersion: String,
+        floorplanImage: String? = null,
+        floorplanMime: String? = null
     ): Boolean {
         return try {
             val backup = VadBackup(
@@ -68,6 +73,8 @@ object BackupManager {
                 appVersion = appVersion,
                 devices = devices.map { it.toSerializable() },
                 floorplanUri = floorplanUri?.toString(),
+                floorplanImage = floorplanImage,
+                floorplanMime = floorplanMime,
                 modbusIp = modbusIp,
                 moxa2Ip = moxa2Ip,
                 inputSourceType = inputSourceType,
