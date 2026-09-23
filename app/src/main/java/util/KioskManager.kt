@@ -31,7 +31,7 @@ fun Context.findActivity(): Activity? {
 object KioskManager {
 
     /** Installer PIN for the hidden corner and the Service tab. */
-    const val SERVICE_PIN = "3121"
+    const val SERVICE_PIN = "2026"
 
     private const val PREFS = "duress_prefs"
     private const val KEY_KIOSK_ENABLED = "kiosk_enabled"
