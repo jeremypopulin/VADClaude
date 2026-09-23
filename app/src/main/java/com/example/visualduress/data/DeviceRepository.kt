@@ -136,7 +136,7 @@ class DeviceRepository(private val context: Context) {
     /** Start the alarm sound for a reason (AlarmSound.DEVICE or AlarmSound.CONNECTION). */
     fun startAlarm(reason: String) {
         AlarmSound.start(context, reason) { enforceMinVolume() }
-    }N
+    }
 
     fun playCriticalBeep(existingPlayer: MediaPlayer?): MediaPlayer {
         existingPlayer?.release()
