@@ -23,6 +23,8 @@ object LicenseManager {
     private const val DEMO_DURATION_DAYS = 5
     private const val GRACE_PERIOD_DAYS = 30
 
+    private val MONTHS = listOf("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec")
+
     // Legacy keys stored as hashes — original values never in APK
     private val legacyKeyHashes = setOf(
         "6B58tHAa5btdo2ok",  // BasicBpete          (basic)
@@ -49,6 +51,9 @@ object LicenseManager {
     enum class KeyType { BASIC, PREMIUM, DEMO, LEGACY_BASIC, LEGACY_PREMIUM, UNKNOWN }
 
     private fun detectKeyType(context: Context, key: String): KeyType {
+        // V2 keys (exact expiry date in the key)
+        parseV2(context, key)?.let { return it.type }
+
         val keyHash = hashValue(key)
         if (keyHash in legacyPremiumHashes) return KeyType.LEGACY_PREMIUM
         if (keyHash in legacyKeyHashes)     return KeyType.LEGACY_BASIC
@@ -86,10 +91,75 @@ object LicenseManager {
         hashValue(key) in legacyKeyHashes
 
     // -------------------------------------------------------------------------
+    // V2 keys — expiry date built into the key
+    // Format: {B|P|D}{yyyyMMdd}-XXXX-XXXX-XXXX-XXXX   e.g. P20270923-B96D-44EE-43E2-437A
+    // Hash:   SHA-256("<secret>-v2-<deviceId>-<code>-<yyyyMMdd>") hex, first 16, uppercase
+    // Must match VAD_Licence_Generator_V3.html
+    // -------------------------------------------------------------------------
+
+    private data class V2Key(val type: KeyType, val year: Int, val month: Int, val day: Int)
+
+    private val v2Pattern = Regex("^([BPD])(\\d{8})([0-9A-F]{16})$")
+
+    /** Strip spaces/dashes and uppercase — so keys typed in lowercase or without dashes still work. */
+    private fun compactV2(key: String): String = key.trim().replace("-", "").replace(" ", "").uppercase()
+
+    /** Canonical display/storage form of a V2 key, or the key unchanged if it isn't V2. */
+    private fun canonicalKey(key: String): String {
+        val c = compactV2(key)
+        if (!v2Pattern.matches(c)) return key.trim()
+        val h = c.substring(9)
+        return "${c.substring(0, 9)}-${h.substring(0, 4)}-${h.substring(4, 8)}-${h.substring(8, 12)}-${h.substring(12, 16)}"
+    }
+
+    private fun sha256HexUpper16(input: String): String {
+        val bytes = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(Charsets.UTF_8))
+        return bytes.joinToString("") { "%02x".format(it) }.take(16).uppercase()
+    }
+
+    /** Returns the decoded V2 key if the signature matches this device, else null. */
+    private fun parseV2(context: Context, key: String): V2Key? {
+        val m = v2Pattern.matchEntire(compactV2(key)) ?: return null
+        val (code, ymd, hash) = m.destructured
+        val expected = sha256HexUpper16("${getSecret()}-v2-${getDeviceId(context).lowercase()}-$code-$ymd")
+        if (hash != expected) return null
+
+        val year = ymd.substring(0, 4).toInt()
+        val month = ymd.substring(4, 6).toInt()
+        val day = ymd.substring(6, 8).toInt()
+        if (month !in 1..12 || day !in 1..31) return null
+
+        val type = when (code) {
+            "P" -> KeyType.PREMIUM
+            "D" -> KeyType.DEMO
+            else -> KeyType.BASIC
+        }
+        return V2Key(type, year, month, day)
+    }
+
+    /** V2 licence is valid up to and including the expiry date — ends at midnight after it. */
+    private fun v2ExpiryMs(v: V2Key): Long =
+        Calendar.getInstance().apply {
+            clear()
+            set(v.year, v.month - 1, v.day)
+            add(Calendar.DAY_OF_MONTH, 1)
+        }.timeInMillis
+
+    /** Moment the licence expires. Null = never expires (legacy keys). */
+    private fun getExpiryMs(context: Context, key: String): Long? {
+        parseV2(context, key)?.let { return v2ExpiryMs(it) }
+        if (isLegacyKey(key)) return null
+        val activationDate = getActivationDate(context) ?: return null
+        return activationDate + TimeUnit.DAYS.toMillis(durationDaysForKey(context, key).toLong())
+    }
+
+    // -------------------------------------------------------------------------
     // Validation
     // -------------------------------------------------------------------------
 
     fun validateLicense(context: Context, enteredKey: String): Boolean {
+        if (parseV2(context, enteredKey) != null) return true
+
         val deviceId = getDeviceId(context)
         val currentYear = Calendar.getInstance().get(Calendar.YEAR)
         for (year in (currentYear - 1)..(currentYear + 1)) {
@@ -102,10 +172,11 @@ object LicenseManager {
     }
 
     fun saveLicense(context: Context, key: String) {
+        val cleanKey = canonicalKey(key)
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val existingKey = prefs.getString(LICENSE_KEY, null)
-        prefs.edit().putString(LICENSE_KEY, key).apply()
-        if (existingKey != key) {
+        prefs.edit().putString(LICENSE_KEY, cleanKey).apply()
+        if (existingKey != cleanKey) {
             prefs.edit().putLong(ACTIVATION_DATE, System.currentTimeMillis()).apply()
             Log.d("LicenseManager", "New activation recorded")
         } else {
@@ -176,9 +247,7 @@ object LicenseManager {
     fun getDaysUntilExpiry(context: Context): Int? {
         val key = getStoredKey(context) ?: return 0
         if (isLegacyKey(key)) return null
-        val activationDate = getActivationDate(context) ?: return 0
-        val duration = durationDaysForKey(context, key)
-        val expiryMs = activationDate + TimeUnit.DAYS.toMillis(duration.toLong())
+        val expiryMs = getExpiryMs(context, key) ?: return 0
         val daysLeft = TimeUnit.MILLISECONDS.toDays(expiryMs - System.currentTimeMillis()).toInt()
         return daysLeft.coerceAtLeast(0)
     }
@@ -186,9 +255,7 @@ object LicenseManager {
     private fun getDaysOverExpiry(context: Context): Int? {
         val key = getStoredKey(context) ?: return 0
         if (isLegacyKey(key)) return null
-        val activationDate = getActivationDate(context) ?: return 0
-        val duration = durationDaysForKey(context, key)
-        val expiryMs = activationDate + TimeUnit.DAYS.toMillis(duration.toLong())
+        val expiryMs = getExpiryMs(context, key) ?: return 0
         val msOver = System.currentTimeMillis() - expiryMs
         return if (msOver >= 0) TimeUnit.MILLISECONDS.toDays(msOver).toInt().coerceAtLeast(0)
         else -1
@@ -207,11 +274,12 @@ object LicenseManager {
     fun getExpiryDateString(context: Context): String? {
         val key = getStoredKey(context) ?: return null
         if (isLegacyKey(key)) return null
-        val activationDate = getActivationDate(context) ?: return null
-        val duration = durationDaysForKey(context, key)
-        val expiryMs = activationDate + TimeUnit.DAYS.toMillis(duration.toLong())
+
+        // V2: show the exact date from the key (last valid day)
+        parseV2(context, key)?.let { v -> return "${v.day} ${MONTHS[v.month - 1]} ${v.year}" }
+
+        val expiryMs = getExpiryMs(context, key) ?: return null
         val cal = Calendar.getInstance().apply { timeInMillis = expiryMs }
-        val months = listOf("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec")
-        return "${cal.get(Calendar.DAY_OF_MONTH)} ${months[cal.get(Calendar.MONTH)]} ${cal.get(Calendar.YEAR)}"
+        return "${cal.get(Calendar.DAY_OF_MONTH)} ${MONTHS[cal.get(Calendar.MONTH)]} ${cal.get(Calendar.YEAR)}"
     }
 }
